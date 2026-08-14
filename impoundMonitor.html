@@ -166,7 +166,16 @@
   border-radius:8px;border:1px solid var(--borders-general);background:var(--backgrounds-main);
   display:flex;flex-direction:column;padding:16px;width:100%;
 }
-#izm-root .zen-card__header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:12px}
+/* Grid keeps the title left and the controls right deterministically.
+   A container query stacks them, left aligned, when the card is narrow —
+   flex-wrap was letting the filter drift into the middle. */
+#izm-root .zen-card-container{container-type:inline-size}
+#izm-root .zen-card__header{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;
+  column-gap:16px;row-gap:10px;margin-bottom:12px}
+@container (max-width:620px){
+  #izm-root .zen-card__header{grid-template-columns:minmax(0,1fr)}
+  #izm-root .zen-card__header-right{justify-content:flex-start}
+}
 #izm-root .zen-card-title{display:flex;gap:8px;align-items:center;min-height:24px}
 #izm-root .zen-card-title__icon{height:24px;width:24px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:50%;background-color:var(--accents-general--main);fill:var(--accents-general--detail)}
 #izm-root .zen-card-title__icon--error{background-color:var(--accents-error--main);fill:var(--accents-error--detail)}
@@ -174,7 +183,7 @@
 #izm-root .zen-card-title__icon svg{width:14px;height:14px}
 #izm-root .zen-card-title__text{font-size:14px;font-weight:500;letter-spacing:.16px;line-height:16px}
 #izm-root .zen-card-title__sub{font-size:12px;line-height:16px;letter-spacing:.32px;color:var(--text-secondary);font-weight:400}
-#izm-root .zen-card__header-right{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
+#izm-root .zen-card__header-right{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;justify-content:flex-end}
 #izm-root .zen-card__footer{
   display:flex;align-items:center;justify-content:space-between;gap:12px;
   padding-top:12px;margin-top:12px;border-top:1px solid var(--borders-general);
