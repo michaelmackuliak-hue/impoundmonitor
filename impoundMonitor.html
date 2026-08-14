@@ -1,0 +1,1401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Impound Monitor — Geotab Add-In</title>
+<style>
+/* ============================================================
+   Impound Monitor — Zenith 3.7.0 compliant
+   All selectors are scoped under #izm-root so nothing leaks into
+   or inherits from the MyGeotab shell.
+   ============================================================ */
+#izm-root{
+  /* --- Zenith colour tokens (v3.7.0) --- */
+  --text-primary:#1F2833;
+  --text-secondary:#4E677E;
+  --text-placeholder:#8DA4B9;
+  --text-hyperlink:#005AA8;
+  --text-error-message:#C51A11;
+  --text-reverse-primary:#FFFFFF;
+  --text-button-disabled:#C0CCD8;
+
+  --action-primary--default:#0078D3;
+  --action-primary--hover:#005AA8;
+  --action-primary--active:#004080;
+  --action-destructive--default:#C51A11;
+  --action-destructive--hover:#B11810;
+  --action-tertiary--hover:#E6EBEF;
+
+  --backgrounds-main:#FFFFFF;
+  --backgrounds-content-0:#F9FAFB;
+  --backgrounds-content-1:#F2F5F7;
+  --backgrounds-content-2:#D9E1E8;
+  --backgrounds-hover:#E6EBEF;
+  --backgrounds-field-disabled:#E6EBEF;
+  --backgrounds-reverse-1:#1F2833;
+
+  --borders-general:#C0CCD8;
+  --borders-form-field--active:#0078D3;
+  --borders-form-field--hover:#748FAA;
+  --borders-form-field--error:#C51A11;
+
+  --accents-warning--main:#FEF7ED;  --accents-warning--detail:#59480D;
+  --accents-error--main:#FFECEB;    --accents-error--detail:#A01F0E;
+  --accents-success--main:#EDFEF2;  --accents-success--detail:#2B6436;
+  --accents-general--main:#EBF6FF;  --accents-general--detail:#25477B;
+
+  --main-font:Roboto,"Segoe UI",Segoe,"Helvetica Neue",Helvetica,sans-serif;
+  --main-font-data:"Roboto Mono","Segoe UI",Segoe,"Helvetica Neue",Helvetica,sans-serif;
+  --border-radius-default:4px;
+  --border-width-default:1px;
+
+  font-family:var(--main-font);
+  color:var(--text-primary);
+  background:var(--backgrounds-content-0);
+  display:flex; flex-direction:column;
+  height:100%; min-height:100vh; box-sizing:border-box;
+  -webkit-font-smoothing:antialiased;
+}
+#izm-root *,#izm-root *::before,#izm-root *::after{box-sizing:border-box}
+
+/* Focus visibility — WCAG 2.2 AA (2.4.7, 2.4.11). Never removed, 3:1 contrast. */
+#izm-root :focus-visible{
+  outline:2px solid var(--action-primary--default);
+  outline-offset:2px;
+  border-radius:var(--border-radius-default);
+}
+
+@media (prefers-reduced-motion:reduce){
+  #izm-root *{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
+}
+
+/* ---------- Typography presets ---------- */
+#izm-root .zen-h1{font-weight:300;font-size:28px;line-height:36px;margin:0}
+#izm-root .zen-h4{font-weight:500;font-size:16px;line-height:24px;margin:0}
+#izm-root .zen-h5{font-weight:500;font-size:14px;line-height:16px;letter-spacing:.16px;margin:0}
+#izm-root .zen-b2{font-size:14px;line-height:16px}
+#izm-root .zen-b4{font-size:12px;line-height:16px;letter-spacing:.32px}
+#izm-root .zen-label{font-size:12px;line-height:16px;letter-spacing:.32px;color:var(--text-secondary)}
+#izm-root .zen-data{font-family:var(--main-font-data)}
+#izm-root .zen-ellipsis{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ---------- Button ---------- */
+#izm-root .zen-button{
+  font-family:var(--main-font);font-size:12px;font-weight:400;letter-spacing:.32px;line-height:16px;
+  border-width:var(--border-width-default);border-style:solid;border-radius:var(--border-radius-default);
+  padding:7px 12px;cursor:pointer;outline:none;text-decoration:none;text-align:center;
+  color:var(--text-primary);fill:var(--text-primary);
+  border-color:var(--borders-general);background-color:var(--backgrounds-main);
+  display:inline-flex;align-items:center;gap:6px;min-height:32px;
+  transition:background-color .15s,border-color .15s;
+}
+#izm-root .zen-button:hover{background-color:var(--backgrounds-hover)}
+#izm-root .zen-button:active{background-color:var(--backgrounds-content-2)}
+#izm-root .zen-button--primary{
+  color:var(--text-reverse-primary);fill:var(--text-reverse-primary);
+  border-color:var(--action-primary--default);background-color:var(--action-primary--default);
+}
+#izm-root .zen-button--primary:hover{background-color:var(--action-primary--hover);border-color:var(--action-primary--hover)}
+#izm-root .zen-button--primary:active{background-color:var(--action-primary--active);border-color:var(--action-primary--active)}
+#izm-root .zen-button--tertiary{color:var(--text-hyperlink);fill:var(--text-hyperlink);border-color:transparent;background-color:transparent}
+#izm-root .zen-button--tertiary:hover{background-color:var(--action-tertiary--hover)}
+#izm-root .zen-button:disabled{pointer-events:none;color:var(--text-button-disabled);fill:var(--text-button-disabled);border-color:var(--borders-general);background:var(--backgrounds-field-disabled)}
+/* Primary actions get a 44px target height per Zenith practical patterns */
+#izm-root .zen-button--tall{min-height:44px;padding:12px 16px;font-size:14px;line-height:20px}
+#izm-root .zen-button svg{width:14px;height:14px;flex:none}
+
+/* ---------- ToggleButton (segmented mode switch) ---------- */
+#izm-root .izm-modeswitch{display:inline-flex;border:1px solid var(--borders-general);border-radius:var(--border-radius-default);overflow:hidden;background:var(--backgrounds-main)}
+#izm-root .izm-modeswitch button{
+  font-family:var(--main-font);font-size:12px;letter-spacing:.32px;line-height:16px;
+  padding:8px 14px;min-height:32px;border:0;background:transparent;color:var(--text-secondary);cursor:pointer;
+  display:inline-flex;align-items:center;gap:6px;transition:background-color .15s,color .15s;
+}
+#izm-root .izm-modeswitch button+button{border-left:1px solid var(--borders-general)}
+#izm-root .izm-modeswitch button:hover:not([aria-pressed="true"]):not(:disabled){background:var(--backgrounds-hover)}
+#izm-root .izm-modeswitch button[aria-pressed="true"]{background:var(--action-primary--default);color:var(--text-reverse-primary);font-weight:500}
+#izm-root .izm-modeswitch button:disabled{color:var(--text-button-disabled);cursor:not-allowed;background:var(--backgrounds-field-disabled)}
+#izm-root .izm-modeswitch svg{width:12px;height:12px;flex:none}
+
+/* ---------- Form fields ---------- */
+#izm-root .zen-field{display:flex;flex-direction:column;gap:4px}
+#izm-root .zen-field__label{font-size:12px;line-height:16px;letter-spacing:.32px;color:var(--text-secondary)}
+#izm-root .zen-input,#izm-root .zen-select{
+  font-family:var(--main-font);font-size:12px;line-height:16px;letter-spacing:.32px;color:var(--text-primary);
+  border:1px solid var(--borders-general);border-radius:var(--border-radius-default);
+  padding:7px 8px;min-height:32px;background:var(--backgrounds-main);outline:none;
+}
+#izm-root .zen-input:hover,#izm-root .zen-select:hover{border-color:var(--borders-form-field--hover)}
+#izm-root .zen-input:focus,#izm-root .zen-select:focus{border-color:var(--borders-form-field--active)}
+#izm-root .zen-input::placeholder{color:var(--text-placeholder)}
+
+/* ---------- Banner ---------- */
+#izm-root .zen-banner{
+  min-height:48px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
+  padding:12px 16px;background-color:var(--backgrounds-content-1);border-radius:var(--border-radius-default);
+  border:1px solid var(--borders-general);
+}
+#izm-root .zen-banner--warning{background-color:var(--accents-warning--main);border-color:#E8D9BA}
+#izm-root .zen-banner--error{background-color:var(--accents-error--main);border-color:#F3CDCA}
+#izm-root .zen-banner--info{background-color:var(--accents-general--main);border-color:#C3DDF5}
+#izm-root .zen-banner__content{display:flex;align-items:flex-start;gap:12px;min-width:0}
+#izm-root .zen-banner__icon{flex:none;width:20px;height:20px;margin-top:1px}
+#izm-root .zen-banner--warning .zen-banner__icon{fill:var(--accents-warning--detail)}
+#izm-root .zen-banner--error .zen-banner__icon{fill:var(--accents-error--detail)}
+#izm-root .zen-banner--info .zen-banner__icon{fill:var(--accents-general--detail)}
+#izm-root .zen-banner__text{font-size:14px;line-height:20px}
+#izm-root .zen-banner__text strong{font-weight:500}
+#izm-root .zen-banner__actions{display:flex;gap:8px;flex:none;align-items:center}
+
+/* ---------- Card ---------- */
+#izm-root .zen-card-container{
+  border-radius:8px;border:1px solid var(--borders-general);background:var(--backgrounds-main);
+  display:flex;flex-direction:column;padding:16px;width:100%;
+}
+#izm-root .zen-card__header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:12px}
+#izm-root .zen-card-title{display:flex;gap:8px;align-items:center;min-height:24px}
+#izm-root .zen-card-title__icon{height:24px;width:24px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:50%;background-color:var(--accents-general--main);fill:var(--accents-general--detail)}
+#izm-root .zen-card-title__icon--error{background-color:var(--accents-error--main);fill:var(--accents-error--detail)}
+#izm-root .zen-card-title__icon--success{background-color:var(--accents-success--main);fill:var(--accents-success--detail)}
+#izm-root .zen-card-title__icon svg{width:14px;height:14px}
+#izm-root .zen-card-title__text{font-size:14px;font-weight:500;letter-spacing:.16px;line-height:16px}
+#izm-root .zen-card-title__sub{font-size:12px;line-height:16px;letter-spacing:.32px;color:var(--text-secondary);font-weight:400}
+#izm-root .zen-card__header-right{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
+#izm-root .zen-card__footer{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding-top:12px;margin-top:12px;border-top:1px solid var(--borders-general);
+  font-size:12px;line-height:16px;letter-spacing:.32px;color:var(--text-secondary);
+}
+
+/* ---------- SummaryTile ---------- */
+#izm-root .izm-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+#izm-root .zen-summary-tile{
+  display:flex;flex-direction:column;gap:2px;padding:12px;
+  border-radius:var(--border-radius-default);background-color:var(--backgrounds-content-1);
+  border:1px solid transparent;
+}
+#izm-root .zen-summary-tile--error{background-color:var(--accents-error--main);border-color:#F3CDCA}
+#izm-root .zen-summary-tile--warning{background-color:var(--accents-warning--main);border-color:#E8D9BA}
+#izm-root .zen-summary-tile--success{background-color:var(--accents-success--main);border-color:#CDEBD6}
+#izm-root .zen-summary-tile__label{font-size:12px;line-height:16px;letter-spacing:.32px;color:var(--text-secondary)}
+#izm-root .zen-summary-tile__value{font-family:var(--main-font-data);font-size:24px;line-height:32px;font-weight:500;color:var(--text-primary)}
+#izm-root .zen-summary-tile__hint{font-size:12px;line-height:16px;letter-spacing:.32px;color:var(--text-secondary)}
+
+/* ---------- Table ---------- */
+#izm-root .izm-tablewrap{overflow:auto;border:1px solid var(--borders-general);border-radius:var(--border-radius-default)}
+#izm-root table.zen-table{width:100%;border-collapse:collapse;font-size:12px;line-height:16px;letter-spacing:.32px}
+#izm-root table.zen-table th{
+  position:sticky;top:0;z-index:1;text-align:left;font-weight:500;font-size:12px;letter-spacing:.32px;
+  color:var(--text-secondary);background:var(--backgrounds-content-1);
+  padding:10px 12px;border-bottom:1px solid var(--borders-general);white-space:nowrap;
+}
+#izm-root table.zen-table td{padding:10px 12px;border-bottom:1px solid var(--backgrounds-content-1);vertical-align:top}
+#izm-root table.zen-table tbody tr:last-child td{border-bottom:0}
+#izm-root table.zen-table tbody tr:hover{background:var(--backgrounds-content-0)}
+#izm-root .izm-cell-primary{font-size:12px;font-weight:500;color:var(--text-primary)}
+#izm-root .izm-cell-sub{font-size:12px;color:var(--text-secondary);margin-top:2px}
+#izm-root .izm-plate{
+  font-family:var(--main-font-data);font-size:12px;font-weight:500;letter-spacing:.5px;
+  border:1px solid var(--borders-general);border-radius:3px;padding:2px 6px;display:inline-block;
+  background:var(--backgrounds-content-0);white-space:nowrap;
+}
+#izm-root .izm-money{font-family:var(--main-font-data);font-size:13px;font-weight:500;white-space:nowrap}
+#izm-root .izm-money--due{color:var(--action-destructive--default)}
+
+/* ---------- Status chip (never colour alone — always carries text) ---------- */
+#izm-root .izm-chip{
+  display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:12px;
+  font-size:12px;line-height:16px;letter-spacing:.32px;font-weight:500;white-space:nowrap;
+}
+#izm-root .izm-chip__dot{width:6px;height:6px;border-radius:50%;flex:none;background:currentColor}
+#izm-root .izm-chip--error{background:var(--accents-error--main);color:var(--accents-error--detail)}
+#izm-root .izm-chip--warning{background:var(--accents-warning--main);color:var(--accents-warning--detail)}
+#izm-root .izm-chip--general{background:var(--accents-general--main);color:var(--accents-general--detail)}
+#izm-root .izm-chip--success{background:var(--accents-success--main);color:var(--accents-success--detail)}
+
+/* ---------- Layout ---------- */
+#izm-root .izm-header{
+  display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;
+  padding:16px 24px;background:var(--backgrounds-main);border-bottom:1px solid var(--borders-general);flex:none;
+}
+#izm-root .izm-header__meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px}
+#izm-root .izm-header__actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+#izm-root .izm-body{flex:1;overflow-y:auto;padding:16px 24px 32px;display:flex;flex-direction:column;gap:16px}
+#izm-root .izm-toolbar{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap}
+#izm-root .izm-spacer{flex:1}
+
+/* ---------- Month accordion ---------- */
+#izm-root .izm-month+.izm-month{margin-top:8px}
+#izm-root .izm-month__hdr{
+  width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:10px 12px;background:var(--backgrounds-content-1);border:1px solid var(--borders-general);
+  border-radius:var(--border-radius-default);cursor:pointer;font-family:var(--main-font);
+  font-size:12px;font-weight:500;letter-spacing:.32px;color:var(--text-primary);text-align:left;
+}
+#izm-root .izm-month__hdr:hover{background:var(--backgrounds-hover)}
+#izm-root .izm-month__count{font-weight:400;color:var(--text-secondary);margin-left:8px}
+#izm-root .izm-month__chev{width:14px;height:14px;fill:none;stroke:var(--text-secondary);stroke-width:1.5;transition:transform .18s}
+#izm-root .izm-month[data-open="true"] .izm-month__chev{transform:rotate(180deg)}
+#izm-root .izm-month__body{display:none;margin-top:8px}
+#izm-root .izm-month[data-open="true"] .izm-month__body{display:block}
+
+/* ---------- States ---------- */
+#izm-root .izm-state{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:40px 24px;text-align:center}
+#izm-root .izm-state__icon{width:40px;height:40px;fill:var(--text-placeholder)}
+#izm-root .izm-state__title{font-size:14px;font-weight:500;color:var(--text-primary)}
+#izm-root .izm-state__body{font-size:12px;line-height:18px;letter-spacing:.32px;color:var(--text-secondary);max-width:460px}
+#izm-root .izm-skel{background:linear-gradient(90deg,var(--backgrounds-content-1) 25%,var(--backgrounds-content-2) 37%,var(--backgrounds-content-1) 63%);background-size:400% 100%;animation:izm-shimmer 1.4s ease infinite;border-radius:3px;height:12px}
+@keyframes izm-shimmer{0%{background-position:100% 50%}100%{background-position:0 50%}}
+
+/* ---------- Modal ---------- */
+#izm-root .zen-shield{position:fixed;inset:0;background:rgba(31,40,51,.55);z-index:11001;display:flex;align-items:center;justify-content:center;padding:24px}
+#izm-root .zen-modal{
+  background:var(--backgrounds-main);border-radius:8px;box-shadow:0 0 8px 2px rgba(0,0,0,.2);
+  max-width:720px;width:100%;max-height:86vh;display:flex;flex-direction:column;
+}
+#izm-root .zen-modal__header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 24px;border-bottom:1px solid var(--borders-general)}
+#izm-root .zen-modal__body{padding:20px 24px;overflow-y:auto;font-size:14px;line-height:22px}
+#izm-root .zen-modal__footer{display:flex;justify-content:flex-end;gap:8px;padding:16px 24px;border-top:1px solid var(--borders-general)}
+#izm-root .zen-modal__close{border:0;background:transparent;cursor:pointer;padding:6px;border-radius:var(--border-radius-default);line-height:0;min-width:24px;min-height:24px}
+#izm-root .zen-modal__close:hover{background:var(--backgrounds-hover)}
+#izm-root .zen-modal__close svg{width:14px;height:14px;fill:var(--text-secondary)}
+
+/* ---------- Setup checklist ---------- */
+#izm-root .izm-step{display:flex;gap:12px;padding:14px 0;border-bottom:1px solid var(--backgrounds-content-1)}
+#izm-root .izm-step:last-child{border-bottom:0}
+#izm-root .izm-step__num{
+  flex:none;width:24px;height:24px;border-radius:50%;background:var(--accents-general--main);
+  color:var(--accents-general--detail);font-size:12px;font-weight:500;display:flex;align-items:center;justify-content:center;
+}
+#izm-root .izm-step__title{font-size:14px;font-weight:500;margin-bottom:4px}
+#izm-root .izm-step__body{font-size:13px;line-height:20px;color:var(--text-secondary)}
+#izm-root .izm-step__body code{font-family:var(--main-font-data);font-size:12px;background:var(--backgrounds-content-1);padding:1px 5px;border-radius:3px;color:var(--text-primary)}
+#izm-root .izm-check{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:var(--border-radius-default);background:var(--backgrounds-content-0);border:1px solid var(--borders-general);font-size:13px}
+#izm-root .izm-check+.izm-check{margin-top:6px}
+#izm-root .izm-check__icon{width:16px;height:16px;flex:none}
+#izm-root .izm-check--ok .izm-check__icon{fill:var(--accents-success--detail)}
+#izm-root .izm-check--bad .izm-check__icon{fill:var(--accents-error--detail)}
+#izm-root .izm-check--unknown .izm-check__icon{fill:var(--text-placeholder)}
+#izm-root .izm-check__label{flex:1}
+#izm-root .izm-check__value{color:var(--text-secondary);font-size:12px}
+
+/* ---------- Toast ---------- */
+#izm-root .zen-toasts{position:fixed;bottom:24px;right:24px;z-index:11020;display:grid;gap:8px}
+#izm-root .zen-toast{
+  display:flex;align-items:center;gap:10px;width:368px;padding:12px 14px;border-radius:var(--border-radius-default);
+  background:var(--backgrounds-reverse-1);color:var(--text-reverse-primary);font-size:13px;line-height:18px;
+  box-shadow:0 2px 8px rgba(0,0,0,.25);
+}
+#izm-root .zen-toast svg{width:16px;height:16px;flex:none;fill:currentColor}
+
+/* ---------- Savings hero (Enterprise tab) ---------- */
+#izm-root .izm-hero{
+  border-radius:8px;border:1px solid #C3DDF5;background:linear-gradient(135deg,var(--accents-general--main) 0%,#FFFFFF 65%);
+  padding:20px 24px;display:flex;gap:28px;align-items:center;flex-wrap:wrap;
+}
+#izm-root .izm-hero__lead{flex:1 1 320px;min-width:280px}
+#izm-root .izm-hero__eyebrow{
+  font-size:12px;line-height:16px;letter-spacing:.32px;font-weight:500;text-transform:uppercase;
+  color:var(--accents-general--detail);margin-bottom:6px;
+}
+#izm-root .izm-hero__headline{font-family:var(--main-font-data);font-size:40px;line-height:46px;font-weight:500;color:var(--accents-success--detail)}
+#izm-root .izm-hero__sub{font-size:14px;line-height:21px;color:var(--text-secondary);margin-top:6px;max-width:520px}
+#izm-root .izm-hero__figs{display:flex;gap:12px;flex-wrap:wrap;flex:1 1 380px}
+#izm-root .izm-fig{
+  flex:1 1 120px;min-width:118px;background:var(--backgrounds-main);border:1px solid var(--borders-general);
+  border-radius:var(--border-radius-default);padding:10px 12px;
+}
+#izm-root .izm-fig__label{font-size:12px;line-height:16px;letter-spacing:.32px;color:var(--text-secondary)}
+#izm-root .izm-fig__value{font-family:var(--main-font-data);font-size:20px;line-height:26px;font-weight:500;margin-top:2px}
+#izm-root .izm-fig--bad .izm-fig__value{color:var(--action-destructive--default)}
+#izm-root .izm-fig--good .izm-fig__value{color:var(--accents-success--detail)}
+#izm-root .izm-hero__bar{height:8px;border-radius:4px;background:var(--accents-error--main);overflow:hidden;margin-top:14px;display:flex}
+#izm-root .izm-hero__bar span{display:block;height:100%;background:var(--accents-success--detail)}
+#izm-root .izm-hero__barkey{display:flex;justify-content:space-between;font-size:12px;letter-spacing:.32px;color:var(--text-secondary);margin-top:5px}
+
+#izm-root .izm-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+@media (max-width:640px){
+  #izm-root .izm-header{padding:12px 16px}
+  #izm-root .izm-body{padding:12px 16px 24px}
+  #izm-root .zen-h1{font-size:20px;line-height:28px}
+}
+</style>
+</head>
+<body style="margin:0">
+
+<div id="izm-root">
+
+  <!-- ================= HEADER ================= -->
+  <header class="izm-header">
+    <div style="min-width:0">
+      <h1 class="zen-h1">Impound Monitor</h1>
+      <div class="izm-header__meta">
+        <span class="izm-chip izm-chip--general" id="izm-mode-badge"><span class="izm-chip__dot"></span>Mock data</span>
+        <span class="zen-label" id="izm-subline">Sample dataset — no database connection</span>
+      </div>
+    </div>
+
+    <div class="izm-header__actions">
+      <div class="izm-modeswitch" role="group" aria-label="Data source">
+        <button type="button" id="izm-mode-mock" aria-pressed="true" onclick="IZM.setMode('mock')">
+          <svg viewBox="0 0 12 12" aria-hidden="true" fill="currentColor"><path d="M2 2h8v2H2zM2 5h8v2H2zM2 8h5v2H2z"/></svg>
+          Mock data
+        </button>
+        <button type="button" id="izm-mode-live" aria-pressed="false" onclick="IZM.setMode('live')">
+          <svg viewBox="0 0 12 12" aria-hidden="true" fill="currentColor"><ellipse cx="6" cy="3" rx="4.5" ry="2"/><path d="M1.5 5v2c0 1.1 2 2 4.5 2s4.5-.9 4.5-2V5c0 1.1-2 2-4.5 2S1.5 6.1 1.5 5z"/><path d="M1.5 8.5V9c0 1.1 2 2 4.5 2s4.5-.9 4.5-2v-.5c0 1.1-2 2-4.5 2s-4.5-.9-4.5-2z"/></svg>
+          Live database
+        </button>
+      </div>
+      <button type="button" class="zen-button" onclick="IZM.openSetup()">
+        <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="7" cy="7" r="2.2"/><path d="M7 1v1.8M7 11.2V13M1 7h1.8M11.2 7H13M2.8 2.8l1.3 1.3M9.9 9.9l1.3 1.3M11.2 2.8L9.9 4.1M4.1 9.9l-1.3 1.3"/></svg>
+        Setup
+      </button>
+      <button type="button" class="zen-button" onclick="IZM.exportCSV()">
+        <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M7 9V1M4.5 6.5 7 9l2.5-2.5"/><path d="M1.5 11.5h11"/></svg>
+        Export CSV
+      </button>
+      <button type="button" class="zen-button zen-button--primary" id="izm-refresh" onclick="IZM.refresh()">
+        <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M1.5 7a5.5 5.5 0 0 1 9.5-3.8M12.5 7a5.5 5.5 0 0 1-9.5 3.8"/><path d="M11 2.5V5H8.5M3 11.5V9h2.5"/></svg>
+        Refresh
+      </button>
+    </div>
+  </header>
+
+  <!-- ================= BODY ================= -->
+  <div class="izm-body">
+
+    <div id="izm-banner-slot" aria-live="polite"></div>
+
+    <!-- Savings hero (Enterprise tab only) -->
+    <div id="izm-hero-slot"></div>
+
+    <!-- Summary tiles -->
+    <div class="izm-tiles" id="izm-tiles"></div>
+
+    <!-- Controls -->
+    <div class="izm-toolbar">
+      <div class="zen-field">
+        <label class="zen-field__label" for="izm-rate">Storage rate (USD per day)</label>
+        <input class="zen-input" id="izm-rate" type="number" min="0" step="1" value="45" style="width:150px"
+               oninput="IZM.setRate(this.value)" aria-describedby="izm-rate-hint">
+      </div>
+      <div class="zen-label" id="izm-rate-hint" style="padding-bottom:8px;max-width:280px">
+        $45 is the conservative national figure. Los Angeles OPGLA is $68.
+      </div>
+      <div class="zen-field">
+        <label class="zen-field__label" for="izm-window">History window</label>
+        <select class="zen-select" id="izm-window" onchange="IZM.setWindow(this.value)" style="width:150px">
+          <option value="30">Last 30 days</option>
+          <option value="90" selected>Last 90 days</option>
+          <option value="180">Last 180 days</option>
+        </select>
+      </div>
+      <div class="izm-spacer"></div>
+    </div>
+
+    <!-- Active impounds -->
+    <section class="zen-card-container" aria-labelledby="izm-active-h">
+      <div class="zen-card__header">
+        <div class="zen-card-title">
+          <span class="zen-card-title__icon zen-card-title__icon--error" aria-hidden="true">
+            <svg viewBox="0 0 14 14"><path d="M7 1 0.5 12.5h13L7 1Zm0 4v3.2"  stroke="currentColor" stroke-width="1.4" fill="none" stroke-linecap="round"/><circle cx="7" cy="10.4" r=".9"/></svg>
+          </span>
+          <span>
+            <span class="zen-card-title__text" id="izm-active-h">Currently impounded</span>
+            <span class="zen-card-title__sub" id="izm-active-sub"></span>
+          </span>
+        </div>
+        <div class="zen-card__header-right">
+          <div class="zen-field">
+            <label class="zen-field__label" for="izm-sev">Severity</label>
+            <select class="zen-select" id="izm-sev" onchange="IZM.renderActive()" style="width:170px">
+              <option value="all">All</option>
+              <option value="error">Critical (72 h +)</option>
+              <option value="warning">Warning (24–72 h)</option>
+              <option value="general">New (under 24 h)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      <div id="izm-active-slot"></div>
+      <div class="zen-card__footer"><span id="izm-active-count"></span><span></span></div>
+    </section>
+
+    <!-- History -->
+    <section class="zen-card-container" aria-labelledby="izm-hist-h">
+      <div class="zen-card__header">
+        <div class="zen-card-title">
+          <span class="zen-card-title__icon" aria-hidden="true">
+            <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="7" cy="7" r="5.8"/><path d="M7 3.6V7l2.3 2.3"/></svg>
+          </span>
+          <span>
+            <span class="zen-card-title__text" id="izm-hist-h">Impound history</span>
+            <span class="zen-card-title__sub" id="izm-hist-sub"></span>
+          </span>
+        </div>
+        <div class="zen-card__header-right">
+          <div class="zen-field">
+            <label class="zen-field__label" for="izm-search">Search</label>
+            <input class="zen-input" id="izm-search" type="search" placeholder="Vehicle, plate or lot"
+                   style="width:220px" oninput="IZM.renderHistory()">
+          </div>
+        </div>
+      </div>
+      <div id="izm-hist-slot"></div>
+      <div class="zen-card__footer"><span id="izm-hist-count"></span><span></span></div>
+    </section>
+
+  </div>
+
+  <div id="izm-modal-slot"></div>
+  <div class="zen-toasts" id="izm-toasts" aria-live="polite"></div>
+</div>
+
+<script>window.IZM_ENTERPRISE=[];</script>
+<script>
+/* ==================================================================
+   Impound Monitor add-in
+   Lifecycle: geotab.addin.impoundMonitor -> {initialize, focus, blur}
+   Runs standalone (mock only) when window.geotab is absent.
+   ================================================================== */
+(function (global) {
+  'use strict';
+
+  // ---- Configuration the add-in depends on -----------------------
+  var CFG = {
+    RULE_NAME: 'Impound Lot Detection',
+    // The contract is the zone TYPE. Zone names are whatever the import wrote
+    // (e.g. "Impound Lot - Westway Towing") and are only ever displayed, never
+    // parsed. NAME_FALLBACK exists solely so the page still shows something if
+    // somebody imports the zones but forgets to create the type.
+    ZONE_TYPE_NAME: 'Impound',
+    ZONE_NAME_FALLBACK: 'impound',
+    DEFAULT_RATE: 45,               // USD per day
+    LA_RATE: 68,
+    TARGET_DAYS: 2.5                // recovery target used by the savings model
+  };
+
+  var api = null, pageState = null;
+  var mode = 'mock';
+  var rate = CFG.DEFAULT_RATE;
+  var windowDays = 90;
+  var data = { active: [], history: [], lots: 0, loading: false, error: null };
+  var checks = { zones: null, rule: null, events: null };
+  var zoneFallback = false;   // true when the zone type is missing and we matched on name
+
+  // ---------------- helpers ----------------
+  var esc = function (s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  };
+  var el = function (id) { return document.getElementById(id); };
+  var fmtDur = function (h) {
+    if (h == null) return '—';
+    if (h < 1) return Math.round(h * 60) + ' min';
+    if (h < 48) return h.toFixed(1) + ' h';
+    return (h / 24).toFixed(1) + ' d';
+  };
+  var fmtDate = function (d) {
+    if (!d) return '—';
+    var x = (d instanceof Date) ? d : new Date(d);
+    if (isNaN(x)) return '—';
+    return x.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' +
+           x.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  };
+  var money = function (n) { return '$' + Math.round(n).toLocaleString(); };
+  // Storage is charged per calendar day started, which is how lots bill.
+  var storageCost = function (hours) { return Math.max(1, Math.ceil(hours / 24)) * rate; };
+  var sev = function (h) { return h >= 72 ? 'error' : h >= 24 ? 'warning' : 'general'; };
+  var sevLabel = function (h) { return h >= 72 ? 'Critical' : h >= 24 ? 'Warning' : 'New'; };
+
+  function toast(msg) {
+    var box = el('izm-toasts');
+    var t = document.createElement('div');
+    t.className = 'zen-toast';
+    t.innerHTML = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm3.2 5.3-3.9 3.9a.8.8 0 01-1.1 0L4.8 8.8a.8.8 0 111.1-1.1l.9.9 3.3-3.4a.8.8 0 011.1 1.1z"/></svg><span>' + esc(msg) + '</span>';
+    box.appendChild(t);
+    setTimeout(function () { t.remove(); }, 4200);
+  }
+
+  // Ray casting. Geotab zone points are {x: longitude, y: latitude}.
+  function pointInPolygon(lng, lat, pts) {
+    var inside = false;
+    for (var i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      var xi = pts[i].x, yi = pts[i].y, xj = pts[j].x, yj = pts[j].y;
+      if (((yi > lat) !== (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  }
+  function haversineKm(la1, lo1, la2, lo2) {
+    var R = 6371, p = Math.PI / 180;
+    var a = Math.sin((la2 - la1) * p / 2) * Math.sin((la2 - la1) * p / 2) +
+            Math.cos(la1 * p) * Math.cos(la2 * p) * Math.sin((lo2 - lo1) * p / 2) * Math.sin((lo2 - lo1) * p / 2);
+    return 2 * R * Math.asin(Math.sqrt(a));
+  }
+  function zoneCentroid(z) {
+    var pts = z.points || [];
+    if (!pts.length) return null;
+    var sx = 0, sy = 0;
+    pts.forEach(function (p) { sx += p.x; sy += p.y; });
+    return { lng: sx / pts.length, lat: sy / pts.length };
+  }
+
+  // ================= MOCK DATA =================
+  var MOCK_LOTS = [
+    { name: 'LAPD Official Police Garage #1', addr: '1722 Camino del Rio N, Los Angeles CA 90026', lat: 34.0699, lng: -118.2601 },
+    { name: 'NYPD Brooklyn Auto Pound',       addr: '2025 Flatbush Ave, Brooklyn NY 11234',       lat: 40.6216, lng: -73.9298 },
+    { name: 'Houston Municipal Impound',      addr: '2015 Chaparral Rd, Houston TX 77054',        lat: 29.6836, lng: -95.3907 },
+    { name: 'Miami-Dade Towing & Storage',    addr: '3505 NW 22nd Ave, Miami FL 33142',           lat: 25.8067, lng: -80.2360 },
+    { name: 'Chicago Auto Pound 4',           addr: '10301 S Doty Ave, Chicago IL 60628',         lat: 41.7078, lng: -87.5983 },
+    { name: 'Phoenix Police Impound Lot',     addr: '2320 W Encanto Blvd, Phoenix AZ 85009',      lat: 33.4713, lng: -112.1093 },
+    { name: 'Denver Vehicle Impound Facility',addr: '5200 Vasquez Blvd E, Denver CO 80216',       lat: 39.7938, lng: -104.9563 }
+  ];
+  var MOCK_VEHICLES = [
+    { id: 'b1A2F', name: '2023 Toyota Camry',     plate: 'ABA 4729', vin: '4T1C11AK5PU123456' },
+    { id: 'b2B71', name: '2022 Ford Escape',      plate: 'HRZ 8823', vin: '1FMCU9G62NUA11223' },
+    { id: 'b3C09', name: '2024 Hyundai Elantra',  plate: 'KTX 0021', vin: 'KMHLM4DJ2RU556677' },
+    { id: 'b4D53', name: '2023 Chevrolet Malibu', plate: 'WQP 5541', vin: '1G1ZD5ST8PF112233' },
+    { id: 'b5E18', name: '2022 Nissan Altima',    plate: 'DLV 3398', vin: '1N4BL4DV5SN889900' },
+    { id: 'b6F44', name: '2023 Honda Civic',      plate: 'MRP 7762', vin: '2HGFE2F55PH334455' },
+    { id: 'b7A90', name: '2021 Kia Soul',         plate: 'TBN 1193', vin: 'KNDJ23AU5M7778899' }
+  ];
+  function buildMock() {
+    var now = Date.now(), H = 3600000;
+    var act = [[0,0,73.5],[1,1,48.2],[2,2,31.7],[3,3,18.4],[4,4,8.1],[5,5,4.3],[6,6,1.8]];
+    var active = act.map(function (r) {
+      var v = MOCK_VEHICLES[r[0]], l = MOCK_LOTS[r[1]];
+      return {
+        eventId: 'mock-a-' + r[0], deviceId: v.id, vehicle: v.name, plate: v.plate, vin: v.vin,
+        lot: l.name, lotAddr: l.addr, lat: l.lat, lng: l.lng,
+        start: new Date(now - r[2] * H), end: null, hours: r[2], active: true
+      };
+    });
+    var hist = [[1,2,45,52],[3,5,38,28],[0,1,32,96],[6,3,27,14],[2,0,22,41],[4,6,18,22],
+                [5,4,14,68],[1,3,10,19],[3,2,6,35],[0,5,3,11],[2,4,55,26],[5,1,61,44],[4,0,72,17]];
+    var history = hist.map(function (r, i) {
+      var v = MOCK_VEHICLES[r[0]], l = MOCK_LOTS[r[1]];
+      var start = new Date(now - r[2] * 24 * H);
+      return {
+        eventId: 'mock-h-' + i, deviceId: v.id, vehicle: v.name, plate: v.plate, vin: v.vin,
+        lot: l.name, lotAddr: l.addr, lat: l.lat, lng: l.lng,
+        start: start, end: new Date(start.getTime() + r[3] * H), hours: r[3], active: false
+      };
+    });
+    return { active: active, history: history, lots: 381 };
+  }
+
+  // ================= ENTERPRISE (historical) =================
+  // 80 confirmed tows from a customer database, 1 Jun - 31 Jul 2025.
+  // Detected at 30 m from a known towing/impound lot with a 12 h minimum dwell.
+  function buildEnterprise() {
+    var src = global.IZM_ENTERPRISE || [];
+    var rows = src.map(function (x, i) {
+      return {
+        eventId: 'ent-' + i, deviceId: x.d,
+        vehicle: x.v, assetName: x.n, plate: x.p, vin: x.vin,
+        lot: x.lot, lotAddr: x.la || x.lc, lotCity: x.lc, lotPhone: x.ph, lotMaps: x.lm,
+        start: new Date(x.a.replace(' ', 'T') + 'Z'),
+        end: x.r ? new Date(x.r.replace(' ', 'T') + 'Z') : null,
+        hours: x.h, haulKm: x.k, metresFromLot: x.m,
+        startAddr: x.sa, startGps: x.sg, startMaps: x.sm,
+        endAddr: x.ea, endGps: x.eg, endMaps: x.em,
+        active: false
+      };
+    });
+    return { active: [], history: rows, lots: countUnique(rows, 'lot') };
+  }
+  function countUnique(rows, key) {
+    var seen = {}; rows.forEach(function (r) { seen[r[key]] = 1; }); return Object.keys(seen).length;
+  }
+
+  // Billed days capped at the recovery target. 2.5 days bills as 3 started days.
+  function targetBilledDays() { return Math.ceil(CFG.TARGET_DAYS); }
+  function savingsModel(rows) {
+    var cap = targetBilledDays(), actualDays = 0, targetDays = 0, over = 0;
+    rows.forEach(function (r) {
+      var b = Math.max(1, Math.ceil(r.hours / 24));
+      actualDays += b;
+      targetDays += Math.min(b, cap);
+      if (b > cap) over++;
+    });
+    var actual = actualDays * rate, target = targetDays * rate;
+    return {
+      vehicles: rows.length, actualDays: actualDays, targetDays: targetDays,
+      actual: actual, target: target, saved: actual - target,
+      pct: actual ? (actual - target) / actual * 100 : 0,
+      over: over,
+      avgHold: rows.length ? rows.reduce(function (s, r) { return s + r.hours; }, 0) / rows.length / 24 : 0,
+      perVehicle: rows.length ? (actual - target) / rows.length : 0
+    };
+  }
+
+  function renderHero() {
+    var slot = el('izm-hero-slot');
+    if (mode !== 'enterprise' || !data.history.length) { slot.innerHTML = ''; return; }
+    var m = savingsModel(data.history);
+    var keptPct = m.actual ? (m.target / m.actual * 100) : 0;
+    slot.innerHTML =
+      '<section class="izm-hero" aria-labelledby="izm-hero-h">' +
+        '<div class="izm-hero__lead">' +
+          '<div class="izm-hero__eyebrow" id="izm-hero-h">Recovering within ' + CFG.TARGET_DAYS + ' days would have saved</div>' +
+          '<div class="izm-hero__headline">' + money(m.saved) + '</div>' +
+          '<div class="izm-hero__sub">Across <strong>' + m.vehicles + ' vehicles</strong> towed between 1 June and 31 July 2025, ' +
+            'held <strong>' + m.avgHold.toFixed(1) + ' days</strong> on average at ' + money(rate) + '/day. ' +
+            '<strong>' + m.over + '</strong> of them sat longer than ' + CFG.TARGET_DAYS + ' days — that overrun is the whole saving. ' +
+            'Works out at ' + money(m.perVehicle) + ' per vehicle.</div>' +
+          '<div class="izm-hero__bar" role="img" aria-label="' + Math.round(keptPct) + ' percent of the bill is unavoidable, ' + Math.round(m.pct) + ' percent is recoverable">' +
+            '<span style="width:' + keptPct.toFixed(1) + '%"></span></div>' +
+          '<div class="izm-hero__barkey"><span>' + money(m.target) + ' unavoidable</span><span>' + money(m.saved) + ' recoverable (' + Math.round(m.pct) + '%)</span></div>' +
+        '</div>' +
+        '<div class="izm-hero__figs">' +
+          '<div class="izm-fig izm-fig--bad"><div class="izm-fig__label">Actually paid</div><div class="izm-fig__value">' + money(m.actual) + '</div><div class="izm-fig__label">' + m.actualDays + ' billed days</div></div>' +
+          '<div class="izm-fig izm-fig--good"><div class="izm-fig__label">At a ' + CFG.TARGET_DAYS + '-day recovery</div><div class="izm-fig__value">' + money(m.target) + '</div><div class="izm-fig__label">' + m.targetDays + ' billed days</div></div>' +
+          '<div class="izm-fig"><div class="izm-fig__label">Days off the clock</div><div class="izm-fig__value">' + (m.actualDays - m.targetDays) + '</div><div class="izm-fig__label">of ' + m.actualDays + ' total</div></div>' +
+          '<div class="izm-fig"><div class="izm-fig__label">At Los Angeles rate</div><div class="izm-fig__value">' + money(m.saved / rate * CFG.LA_RATE) + '</div><div class="izm-fig__label">if ' + money(CFG.LA_RATE) + '/day</div></div>' +
+        '</div>' +
+      '</section>';
+  }
+
+  // ================= LIVE DATA =================
+  function call(method, params) {
+    return new Promise(function (resolve, reject) {
+      api.call(method, params, resolve, reject);
+    });
+  }
+  // multiCall has a practical ceiling on payload size, so send it in chunks
+  // and stitch the results back together in order.
+  function multiCallChunked(calls, size) {
+    var out = [], i = 0;
+    function next() {
+      if (i >= calls.length) return Promise.resolve(out);
+      var slice = calls.slice(i, i + size); i += size;
+      return new Promise(function (resolve, reject) {
+        api.multiCall(slice, resolve, reject);
+      }).then(function (res) {
+        out = out.concat(res || []);
+        return next();
+      });
+    }
+    return next();
+  }
+
+  function loadLive() {
+    data.loading = true; data.error = null; renderAll();
+
+    var from = new Date(Date.now() - windowDays * 86400000);
+    var rule = null, zones = [], zoneType = null;
+    zoneFallback = false;
+
+    // 1. The rule that produces the events
+    return call('Get', { typeName: 'Rule', search: { name: CFG.RULE_NAME } })
+      .then(function (rules) {
+        rule = (rules || [])[0] || null;
+        checks.rule = rule ? { ok: true, detail: rule.id } : { ok: false, detail: 'not found' };
+        // 2. The zones. Prefer a ZoneType named "Impound".
+        return call('Get', { typeName: 'ZoneType' }).catch(function () { return []; });
+      })
+      .then(function (types) {
+        zoneType = (types || []).filter(function (t) {
+          return (t.name || '').trim().toLowerCase() === CFG.ZONE_TYPE_NAME.toLowerCase();
+        })[0] || null;
+        return call('Get', { typeName: 'Zone', resultsLimit: 60000 });
+      })
+      .then(function (allZones) {
+        allZones = allZones || [];
+        if (zoneType) {
+          // Normal path: the zone type is the contract.
+          zones = allZones.filter(function (z) {
+            return (z.zoneTypes || []).some(function (t) { return t.id === zoneType.id; });
+          });
+          zoneFallback = false;
+        } else {
+          // The type is missing. Show something rather than nothing, but say so.
+          zones = allZones.filter(function (z) {
+            return (z.name || '').toLowerCase().indexOf(CFG.ZONE_NAME_FALLBACK) !== -1;
+          });
+          zoneFallback = zones.length > 0;
+        }
+        checks.zones = {
+          ok: zones.length > 0 && !zoneFallback,
+          detail: zoneFallback
+            ? zones.length + ' matched by name — zone type "' + CFG.ZONE_TYPE_NAME + '" does not exist'
+            : zones.length + ' zone' + (zones.length === 1 ? '' : 's') + ' tagged "' + CFG.ZONE_TYPE_NAME + '"'
+        };
+        data.lots = zones.length;
+        if (!rule) return [];
+        // Respect the group filter the user has set in the MyGeotab header.
+        var search = { ruleSearch: { id: rule.id }, fromDate: from.toISOString() };
+        var groups = (pageState && typeof pageState.getGroupFilter === 'function')
+          ? pageState.getGroupFilter() : null;
+        if (groups && groups.length) search.deviceSearch = { groups: groups };
+        return call('Get', { typeName: 'ExceptionEvent', search: search, resultsLimit: 5000 });
+      })
+      .then(function (events) {
+        events = events || [];
+        checks.events = { ok: events.length > 0, detail: events.length + ' event' + (events.length === 1 ? '' : 's') + ' in window' };
+        if (!events.length) { data.active = []; data.history = []; return null; }
+
+        var deviceIds = {};
+        events.forEach(function (e) { if (e.device && e.device.id) deviceIds[e.device.id] = 1; });
+        var ids = Object.keys(deviceIds);
+
+        // Only the devices in this event set. Pulling the whole fleet to label a
+        // handful of events is pointless on a database with 200k vehicles.
+        var openIds = {};
+        events.forEach(function (e) {
+          var open = !e.activeTo || new Date(e.activeTo).getFullYear() > 2500;
+          if (open && e.device && e.device.id) openIds[e.device.id] = 1;
+        });
+        var openList = Object.keys(openIds);
+
+        return Promise.all([
+          multiCallChunked(ids.map(function (id) {
+            return ['Get', { typeName: 'Device', search: { id: id } }];
+          }), 100).catch(function () { return []; }),
+          // Current position is only needed for events that are still open.
+          openList.length ? multiCallChunked(openList.map(function (id) {
+            return ['Get', { typeName: 'DeviceStatusInfo', search: { deviceSearch: { id: id } } }];
+          }), 100).catch(function () { return []; }) : Promise.resolve([])
+        ]).then(function (res) {
+          var devById = {};
+          (res[0] || []).forEach(function (arr) {
+            (arr || []).forEach(function (d) { devById[d.id] = d; });
+          });
+          var dsiById = {};
+          (res[1] || []).forEach(function (arr) {
+            (arr || []).forEach(function (s) { if (s.device && s.device.id) dsiById[s.device.id] = s; });
+          });
+
+          // Zone lookup for open events: use the vehicle's current position.
+          function lotFor(deviceId) {
+            var s = dsiById[deviceId];
+            if (!s || s.latitude == null) return null;
+            var hit = zones.filter(function (z) { return pointInPolygon(s.longitude, s.latitude, z.points || []); })[0];
+            if (!hit) {
+              // nearest zone within 200 m, so a GPS drift of a few metres still resolves
+              var best = null, bestD = 0.2;
+              zones.forEach(function (z) {
+                var c = zoneCentroid(z); if (!c) return;
+                var d = haversineKm(s.latitude, s.longitude, c.lat, c.lng);
+                if (d < bestD) { bestD = d; best = z; }
+              });
+              hit = best;
+            }
+            if (!hit) return null;
+            var c = zoneCentroid(hit);
+            return { name: hit.name, addr: hit.comment || '', lat: c ? c.lat : s.latitude, lng: c ? c.lng : s.longitude };
+          }
+
+          // Resolve which zone a position falls in.
+          function zoneAt(lat, lng) {
+            if (lat == null || lng == null) return null;
+            var hit = zones.filter(function (z) { return pointInPolygon(lng, lat, z.points || []); })[0];
+            if (!hit) {
+              // nearest zone within 200 m, so a few metres of GPS drift still resolves
+              var best = null, bestD = 0.2;
+              zones.forEach(function (z) {
+                var c = zoneCentroid(z); if (!c) return;
+                var d = haversineKm(lat, lng, c.lat, c.lng);
+                if (d < bestD) { bestD = d; best = z; }
+              });
+              hit = best;
+            }
+            if (!hit) return null;
+            var c = zoneCentroid(hit);
+            return { name: hit.name, addr: hit.comment || '', lat: c ? c.lat : lat, lng: c ? c.lng : lng };
+          }
+          function lotFor(deviceId) {
+            var s = dsiById[deviceId];
+            return s ? zoneAt(s.latitude, s.longitude) : null;
+          }
+
+          var act = [], his = [];
+          events.forEach(function (e) {
+            var dev = devById[e.device && e.device.id] || {};
+            var start = new Date(e.activeFrom);
+            var open = !e.activeTo || new Date(e.activeTo).getFullYear() > 2500;
+            var end = open ? null : new Date(e.activeTo);
+            var hours = ((open ? Date.now() : end.getTime()) - start.getTime()) / 3600000;
+            var lot = open ? lotFor(e.device.id) : null;
+            var row = {
+              eventId: e.id, deviceId: (e.device || {}).id,
+              vehicle: dev.name || (e.device || {}).id || 'Unknown',
+              plate: dev.licensePlate || '', vin: dev.vehicleIdentificationNumber || '',
+              lot: lot ? lot.name : (open ? 'Zone not resolved' : null),
+              lotAddr: lot ? lot.addr : '',
+              lat: lot ? lot.lat : null, lng: lot ? lot.lng : null,
+              start: start, end: end, hours: hours, active: open
+            };
+            (open ? act : his).push(row);
+          });
+
+          // ---- Closed events: find the trip that ended at the impound ----
+          // ExceptionEvent records the device, the rule and the times, but not
+          // the zone. For a closed event the vehicle has already left, so the
+          // current position is useless. The trip that STOPPED at activeFrom is
+          // the one that dropped it in the lot, and Trip.stopPoint gives us the
+          // coordinates. One tight-window call per event, batched via multiCall.
+          var pending = his.filter(function (r) { return r.deviceId; });
+          if (!pending.length) { finish(); return null; }
+
+          var calls = pending.map(function (r) {
+            return ['Get', {
+              typeName: 'Trip',
+              search: {
+                deviceSearch: { id: r.deviceId },
+                fromDate: new Date(r.start.getTime() - 2 * 3600000).toISOString(),
+                toDate:   new Date(r.start.getTime() + 2 * 3600000).toISOString()
+              },
+              resultsLimit: 20
+            }];
+          });
+
+          return multiCallChunked(calls, 100).then(function (results) {
+            results.forEach(function (trips, i) {
+              var r = pending[i];
+              var best = null, bestGap = Infinity;
+              (trips || []).forEach(function (t) {
+                if (!t.stopPoint) return;
+                var gap = Math.abs(new Date(t.stop).getTime() - r.start.getTime());
+                if (gap < bestGap) { bestGap = gap; best = t; }
+              });
+              // accept a stop within 90 minutes of the event opening
+              if (best && bestGap <= 90 * 60000) {
+                var z = zoneAt(best.stopPoint.y, best.stopPoint.x);
+                if (z) { r.lot = z.name; r.lotAddr = z.addr; r.lat = z.lat; r.lng = z.lng; }
+                else { r.lot = 'Outside any impound zone'; }
+              }
+              if (!r.lot) r.lot = 'Zone not resolved';
+            });
+            finish();
+            return null;
+          }).catch(function () {
+            his.forEach(function (r) { if (!r.lot) r.lot = 'Zone not resolved'; });
+            finish();
+            return null;
+          });
+
+          function finish() {
+            act.sort(function (a, b) { return b.hours - a.hours; });
+            his.sort(function (a, b) { return b.start - a.start; });
+            data.active = act; data.history = his;
+          }
+        });
+      })
+      .catch(function (err) {
+        data.error = (err && (err.message || err.name)) || String(err);
+      })
+      .then(function () {
+        data.loading = false;
+        renderAll();
+      });
+  }
+
+  // ================= RENDER =================
+  function bannerHTML(type, icon, text, actions) {
+    return '<div class="zen-banner zen-banner--' + type + '" role="' + (type === 'error' ? 'alert' : 'status') + '">' +
+      '<div class="zen-banner__content">' +
+        '<svg class="zen-banner__icon" viewBox="0 0 20 20" aria-hidden="true">' + icon + '</svg>' +
+        '<div class="zen-banner__text">' + text + '</div>' +
+      '</div>' +
+      '<div class="zen-banner__actions">' + (actions || '') + '</div></div>';
+  }
+  var ICON_WARN = '<path d="M10 1.7 0.7 18h18.6L10 1.7Zm0 5.8v5m0 2.6h.01" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/>';
+  var ICON_INFO = '<path d="M10 1a9 9 0 100 18 9 9 0 000-18Zm1 13H9V9h2v5Zm0-7H9V5h2v2Z"/>';
+  var ICON_ERR  = '<path d="M10 1a9 9 0 100 18 9 9 0 000-18Zm1 13H9v-2h2v2Zm0-4H9V5h2v5Z"/>';
+
+  function renderBanner() {
+    var slot = el('izm-banner-slot');
+    var html = '';
+
+    if (mode === 'enterprise') {
+      html = bannerHTML('info', ICON_INFO,
+        '<strong>Historical analysis, not live data.</strong> 80 confirmed tows from <code>a customer database</code>, ' +
+        '1 June – 31 July 2025, detected within 30 m of a known towing lot with a 12 hour minimum dwell. ' +
+        'These are closed events — nothing here is still impounded.',
+        '');
+    } else if (mode === 'mock') {
+      html = bannerHTML('info', ICON_INFO,
+        '<strong>Mock data.</strong> Everything below is a sample dataset, not your database. ' +
+        'Switch to <em>Live database</em> to read real events from the <code>' + esc(CFG.RULE_NAME) + '</code> rule.',
+        '<button type="button" class="zen-button" onclick="IZM.openSetup()">What do I need?</button>');
+    } else if (!api) {
+      html = bannerHTML('warning', ICON_WARN,
+        '<strong>No database connection.</strong> This page is running outside MyGeotab, so live mode has nothing to read. ' +
+        'Install it as an add-in and reopen it from the MyGeotab menu.',
+        '<button type="button" class="zen-button" onclick="IZM.setMode(\'mock\')">Back to mock data</button>');
+    } else if (data.error) {
+      html = bannerHTML('error', ICON_ERR,
+        '<strong>Could not load events.</strong> ' + esc(data.error),
+        '<button type="button" class="zen-button" onclick="IZM.refresh()">Try again</button>');
+    } else if (checks.rule && !checks.rule.ok) {
+      html = bannerHTML('warning', ICON_WARN,
+        '<strong>Setup incomplete.</strong> No rule named <code>' + esc(CFG.RULE_NAME) + '</code> exists in this database, ' +
+        'so there are no events to show.',
+        '<button type="button" class="zen-button zen-button--primary" onclick="IZM.openSetup()">Show me how</button>');
+    } else if (zoneFallback) {
+      html = bannerHTML('warning', ICON_WARN,
+        '<strong>Zone type <code>' + esc(CFG.ZONE_TYPE_NAME) + '</code> does not exist.</strong> ' +
+        'Falling back to matching zone names, which is unreliable — any zone with "impound" in its name is being counted. ' +
+        'Create the zone type and tag the lots with it.',
+        '<button type="button" class="zen-button zen-button--primary" onclick="IZM.openSetup()">Show me how</button>');
+    } else if (checks.zones && !checks.zones.ok) {
+      html = bannerHTML('warning', ICON_WARN,
+        '<strong>No impound zones found.</strong> Import the lots as zones and tag them with the zone type <code>' +
+        esc(CFG.ZONE_TYPE_NAME) + '</code>.',
+        '<button type="button" class="zen-button zen-button--primary" onclick="IZM.openSetup()">Show me how</button>');
+    }
+    slot.innerHTML = html;
+  }
+
+  function renderTiles() {
+    if (mode === 'enterprise') {
+      var m = savingsModel(data.history);
+      var longest = data.history.reduce(function (b, r) { return r.hours > b ? r.hours : b; }, 0);
+      el('izm-tiles').innerHTML = [
+        { type: 'error',   label: 'Vehicles towed',     value: m.vehicles,            hint: 'Jun–Jul 2025' },
+        { type: 'warning', label: 'Average hold',       value: m.avgHold.toFixed(1) + ' d', hint: 'target is ' + CFG.TARGET_DAYS + ' d' },
+        { type: 'error',   label: 'Storage paid',       value: money(m.actual),       hint: m.actualDays + ' billed days' },
+        { type: 'success', label: 'Recoverable',        value: money(m.saved),        hint: Math.round(m.pct) + '% of the bill' },
+        { type: 'default', label: 'Lots involved',      value: data.lots,             hint: 'longest hold ' + (longest / 24).toFixed(1) + ' d' }
+      ].map(function (t) {
+        return '<div class="zen-summary-tile' + (t.type !== 'default' ? ' zen-summary-tile--' + t.type : '') + '">' +
+          '<span class="zen-summary-tile__label">' + esc(t.label) + '</span>' +
+          '<span class="zen-summary-tile__value">' + esc(t.value) + '</span>' +
+          '<span class="zen-summary-tile__hint">' + esc(t.hint) + '</span></div>';
+      }).join('');
+      return;
+    }
+    var a = data.active;
+    var totalHours = a.reduce(function (s, r) { return s + r.hours; }, 0);
+    var avg = a.length ? totalHours / a.length : 0;
+    var accrued = a.reduce(function (s, r) { return s + storageCost(r.hours); }, 0);
+    var recovered = data.history.length;
+    var recAvg = recovered ? data.history.reduce(function (s, r) { return s + r.hours; }, 0) / recovered : 0;
+
+    var tiles = [
+      { type: a.length ? 'error' : 'success', label: 'Currently impounded', value: a.length,
+        hint: a.length ? 'open events' : 'nothing open' },
+      { type: 'warning', label: 'Average time held', value: fmtDur(avg), hint: 'across open events' },
+      { type: 'error', label: 'Storage accrued', value: money(accrued), hint: 'at ' + money(rate) + '/day' },
+      { type: 'success', label: 'Released in window', value: recovered, hint: 'average ' + fmtDur(recAvg) },
+      { type: 'default', label: 'Lots monitored', value: data.lots || 0, hint: mode === 'mock' ? 'sample list' : 'impound zones' }
+    ];
+    el('izm-tiles').innerHTML = tiles.map(function (t) {
+      return '<div class="zen-summary-tile' + (t.type !== 'default' ? ' zen-summary-tile--' + t.type : '') + '">' +
+        '<span class="zen-summary-tile__label">' + esc(t.label) + '</span>' +
+        '<span class="zen-summary-tile__value">' + esc(t.value) + '</span>' +
+        '<span class="zen-summary-tile__hint">' + esc(t.hint) + '</span></div>';
+    }).join('');
+  }
+
+  function skeleton(rows) {
+    var out = '<div style="padding:12px">';
+    for (var i = 0; i < rows; i++) out += '<div class="izm-skel" style="margin:10px 0;width:' + (60 + (i % 4) * 10) + '%"></div>';
+    return out + '</div>';
+  }
+  function emptyState(title, body) {
+    return '<div class="izm-state">' +
+      '<svg class="izm-state__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 00-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 00-7-7Zm0 9.5A2.5 2.5 0 1112 6.5a2.5 2.5 0 010 5Z"/></svg>' +
+      '<div class="izm-state__title">' + esc(title) + '</div>' +
+      '<div class="izm-state__body">' + body + '</div></div>';
+  }
+
+  function mapAction(row) {
+    if (!row.deviceId) return '<span class="zen-label">No device</span>';
+    return '<button type="button" class="zen-button zen-button--tertiary" onclick="IZM.viewOnMap(\'' +
+      esc(row.deviceId) + '\')" aria-label="View ' + esc(row.vehicle) + ' on the map">' +
+      '<svg viewBox="0 0 14 14" fill="currentColor" aria-hidden="true"><path d="M7 1a4 4 0 00-4 4c0 3 4 8 4 8s4-5 4-8a4 4 0 00-4-4Zm0 5.4A1.4 1.4 0 117 3.6a1.4 1.4 0 010 2.8Z"/></svg>' +
+      'View asset on map</button>';
+  }
+
+  function renderActive() {
+    var slot = el('izm-active-slot');
+    var card = slot.closest('.zen-card-container');
+    if (mode === 'enterprise') { if (card) card.style.display = 'none'; return; }
+    if (card) card.style.display = '';
+    if (data.loading) { slot.innerHTML = skeleton(5); el('izm-active-count').textContent = ''; return; }
+
+    var filter = el('izm-sev').value;
+    var rows = data.active.filter(function (r) { return filter === 'all' || sev(r.hours) === filter; });
+
+    el('izm-active-sub').textContent = data.active.length
+      ? data.active.length + ' vehicle' + (data.active.length === 1 ? '' : 's') + ' sitting in an impound zone right now'
+      : '';
+
+    if (!rows.length) {
+      slot.innerHTML = emptyState(
+        data.active.length ? 'Nothing matches that severity' : 'No vehicles currently impounded',
+        data.active.length ? 'Clear the severity filter to see all open events.'
+          : 'When the <code>' + esc(CFG.RULE_NAME) + '</code> rule fires, the vehicle appears here within one sync.');
+      el('izm-active-count').textContent = '0 of ' + data.active.length;
+      return;
+    }
+
+    slot.innerHTML = '<div class="izm-tablewrap" style="max-height:380px"><table class="zen-table">' +
+      '<caption class="izm-sr">Vehicles currently held in an impound zone</caption>' +
+      '<thead><tr><th scope="col">Vehicle</th><th scope="col">Plate</th><th scope="col">Time held</th>' +
+      '<th scope="col">Detected</th><th scope="col">Impound lot</th><th scope="col">Storage owed</th>' +
+      '<th scope="col">Action</th></tr></thead><tbody>' +
+      rows.map(function (r) {
+        var s = sev(r.hours);
+        return '<tr>' +
+          '<td><div class="izm-cell-primary">' + esc(r.vehicle) + '</div>' +
+            (r.vin ? '<div class="izm-cell-sub zen-data">' + esc(r.vin) + '</div>' : '') + '</td>' +
+          '<td>' + (r.plate ? '<span class="izm-plate">' + esc(r.plate) + '</span>' : '<span class="zen-label">—</span>') + '</td>' +
+          '<td><span class="izm-chip izm-chip--' + s + '"><span class="izm-chip__dot"></span>' +
+            sevLabel(r.hours) + ' · ' + fmtDur(r.hours) + '</span></td>' +
+          '<td style="white-space:nowrap;color:var(--text-secondary)">' + esc(fmtDate(r.start)) + '</td>' +
+          '<td><div class="izm-cell-primary">' + esc(r.lot) + '</div>' +
+            (r.lotAddr ? '<div class="izm-cell-sub">' + esc(r.lotAddr) + '</div>' : '') + '</td>' +
+          '<td><span class="izm-money izm-money--due">' + money(storageCost(r.hours)) + '</span>' +
+            '<div class="izm-cell-sub">' + Math.max(1, Math.ceil(r.hours / 24)) + ' day' +
+            (Math.ceil(r.hours / 24) === 1 ? '' : 's') + ' × ' + money(rate) + '</div></td>' +
+          '<td>' + mapAction(r) + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+
+    el('izm-active-count').textContent = rows.length + ' of ' + data.active.length + ' shown';
+  }
+
+  function renderHistory() {
+    var slot = el('izm-hist-slot');
+    if (data.loading) { slot.innerHTML = skeleton(4); el('izm-hist-count').textContent = ''; return; }
+
+    var q = (el('izm-search').value || '').trim().toLowerCase();
+    var rows = data.history.filter(function (r) {
+      if (!q) return true;
+      return (r.vehicle + ' ' + r.plate + ' ' + r.lot + ' ' + r.vin).toLowerCase().indexOf(q) !== -1;
+    });
+    el('izm-hist-sub').textContent = mode === 'enterprise'
+      ? 'Every confirmed tow, longest hold first'
+      : 'Released vehicles, last ' + windowDays + ' days';
+
+    if (!rows.length) {
+      slot.innerHTML = emptyState(q ? 'No matches' : 'No history yet',
+        q ? 'Nothing matches “' + esc(q) + '”. Try a plate or lot name.'
+          : 'Closed events appear here once a vehicle leaves an impound zone.');
+      el('izm-hist-count').textContent = '0 records';
+      return;
+    }
+
+    var groups = {}, order = [];
+    rows.forEach(function (r) {
+      var k = r.start.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+      if (!groups[k]) { groups[k] = []; order.push(k); }
+      groups[k].push(r);
+    });
+
+    if (mode === 'enterprise') {
+      var cap = targetBilledDays();
+      slot.innerHTML = order.map(function (month, i) {
+        var g = groups[month];
+        return '<div class="izm-month" data-open="' + (i === 0) + '">' +
+          '<button type="button" class="izm-month__hdr" aria-expanded="' + (i === 0) + '" onclick="IZM.toggleMonth(this)">' +
+            '<span>' + esc(month) + '<span class="izm-month__count">' + g.length + ' vehicle' + (g.length === 1 ? '' : 's') + '</span></span>' +
+            '<svg class="izm-month__chev" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 5l4 4 4-4" stroke-linecap="round"/></svg>' +
+          '</button>' +
+          '<div class="izm-month__body"><div class="izm-tablewrap"><table class="zen-table">' +
+          '<thead><tr><th scope="col">Vehicle</th><th scope="col">Impound lot</th><th scope="col">Entered</th>' +
+          '<th scope="col">Released</th><th scope="col">Held</th><th scope="col">Paid</th>' +
+          '<th scope="col">Recoverable</th><th scope="col">Picked up from</th><th scope="col">Action</th></tr></thead><tbody>' +
+          g.map(function (r) {
+            var b = Math.max(1, Math.ceil(r.hours / 24));
+            var save = Math.max(0, b - cap) * rate;
+            return '<tr>' +
+              '<td><div class="izm-cell-primary">' + esc(r.vehicle) + '</div>' +
+                (r.vin ? '<div class="izm-cell-sub zen-data">' + esc(r.vin) + '</div>' : '') +
+                (r.plate ? '<div class="izm-cell-sub"><span class="izm-plate">' + esc(r.plate) + '</span></div>' : '') + '</td>' +
+              '<td><div class="izm-cell-primary">' +
+                (r.lotMaps ? '<a href="' + esc(r.lotMaps) + '" target="_blank" rel="noopener" style="color:var(--text-hyperlink)">' + esc(r.lot) + '</a>' : esc(r.lot)) +
+                '</div><div class="izm-cell-sub">' + esc(r.lotAddr) + '</div>' +
+                '<div class="izm-cell-sub">' + esc(r.metresFromLot) + ' m from the lot pin' +
+                (r.haulKm != null ? ' · hauled ' + r.haulKm + ' km' : '') + '</div></td>' +
+              '<td style="white-space:nowrap">' + esc(fmtDate(r.start)) + '</td>' +
+              '<td style="white-space:nowrap;color:var(--text-secondary)">' + esc(fmtDate(r.end)) + '</td>' +
+              '<td><span class="izm-chip izm-chip--' + (b > cap ? 'error' : 'success') + '">' +
+                '<span class="izm-chip__dot"></span>' + (r.hours / 24).toFixed(1) + ' d</span>' +
+                '<div class="izm-cell-sub">' + b + ' billed day' + (b === 1 ? '' : 's') + '</div></td>' +
+              '<td><span class="izm-money">' + money(b * rate) + '</span></td>' +
+              '<td><span class="izm-money" style="color:' + (save ? 'var(--accents-success--detail)' : 'var(--text-secondary)') + '">' +
+                (save ? money(save) : '—') + '</span></td>' +
+              '<td>' + (r.startMaps
+                ? '<a href="' + esc(r.startMaps) + '" target="_blank" rel="noopener" style="color:var(--text-hyperlink)">' + esc(r.startGps) + '</a>' +
+                  '<div class="izm-cell-sub">' + esc(r.startAddr) + '</div>'
+                : '<span class="zen-label">—</span>') + '</td>' +
+              '<td>' + mapAction(r) + '</td></tr>';
+          }).join('') + '</tbody></table></div></div></div>';
+      }).join('');
+      el('izm-hist-count').textContent = rows.length + ' vehicle' + (rows.length === 1 ? '' : 's') +
+        ' across ' + order.length + ' month' + (order.length === 1 ? '' : 's');
+      return;
+    }
+
+    slot.innerHTML = order.map(function (month, i) {
+      var g = groups[month];
+      return '<div class="izm-month" data-open="' + (i === 0) + '">' +
+        '<button type="button" class="izm-month__hdr" aria-expanded="' + (i === 0) + '" onclick="IZM.toggleMonth(this)">' +
+          '<span>' + esc(month) + '<span class="izm-month__count">' + g.length + ' record' + (g.length === 1 ? '' : 's') + '</span></span>' +
+          '<svg class="izm-month__chev" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 5l4 4 4-4" stroke-linecap="round"/></svg>' +
+        '</button>' +
+        '<div class="izm-month__body"><div class="izm-tablewrap"><table class="zen-table">' +
+        '<thead><tr><th scope="col">Vehicle</th><th scope="col">Plate</th><th scope="col">Impound lot</th>' +
+        '<th scope="col">Entered</th><th scope="col">Released</th><th scope="col">Held</th>' +
+        '<th scope="col">Storage cost</th><th scope="col">Action</th></tr></thead><tbody>' +
+        g.map(function (r) {
+          return '<tr>' +
+            '<td><div class="izm-cell-primary">' + esc(r.vehicle) + '</div>' +
+              (r.vin ? '<div class="izm-cell-sub zen-data">' + esc(r.vin) + '</div>' : '') + '</td>' +
+            '<td>' + (r.plate ? '<span class="izm-plate">' + esc(r.plate) + '</span>' : '<span class="zen-label">—</span>') + '</td>' +
+            '<td><div class="izm-cell-primary">' + esc(r.lot) + '</div>' +
+              (r.lotAddr ? '<div class="izm-cell-sub">' + esc(r.lotAddr) + '</div>' : '') + '</td>' +
+            '<td style="white-space:nowrap">' + esc(fmtDate(r.start)) + '</td>' +
+            '<td style="white-space:nowrap;color:var(--text-secondary)">' + esc(fmtDate(r.end)) + '</td>' +
+            '<td><span class="izm-money">' + fmtDur(r.hours) + '</span></td>' +
+            '<td><span class="izm-money">' + money(storageCost(r.hours)) + '</span></td>' +
+            '<td>' + mapAction(r) + '</td></tr>';
+        }).join('') + '</tbody></table></div></div></div>';
+    }).join('');
+
+    el('izm-hist-count').textContent = rows.length + ' record' + (rows.length === 1 ? '' : 's') +
+      ' across ' + order.length + ' month' + (order.length === 1 ? '' : 's');
+  }
+
+  function renderAll() { renderBanner(); renderHero(); renderTiles(); renderActive(); renderHistory(); }
+
+  // ================= SETUP MODAL =================
+  function checkRow(state, label, value) {
+    var cls = state === true ? 'ok' : state === false ? 'bad' : 'unknown';
+    var icon = state === true
+      ? '<path d="M8 1a7 7 0 100 14A7 7 0 008 1Zm3.2 5.3-3.9 3.9a.8.8 0 01-1.1 0L4.8 8.8a.8.8 0 111.1-1.1l.9.9 3.3-3.4a.8.8 0 011.1 1.1Z"/>'
+      : state === false
+      ? '<path d="M8 1a7 7 0 100 14A7 7 0 008 1Zm1 11H7v-2h2v2Zm0-3H7V4h2v5Z"/>'
+      : '<path d="M8 1a7 7 0 100 14A7 7 0 008 1Zm0 12.5A5.5 5.5 0 118 2.5a5.5 5.5 0 010 11Z"/>';
+    return '<div class="izm-check izm-check--' + cls + '">' +
+      '<svg class="izm-check__icon" viewBox="0 0 16 16" aria-hidden="true">' + icon + '</svg>' +
+      '<span class="izm-check__label">' + esc(label) + '</span>' +
+      '<span class="izm-check__value">' + esc(value) + '</span></div>';
+  }
+
+  function openSetup() {
+    var connected = !!api;
+    var html =
+      '<div class="zen-shield" role="presentation" onclick="if(event.target===this)IZM.closeSetup()">' +
+      '<div class="zen-modal" role="dialog" aria-modal="true" aria-labelledby="izm-setup-title">' +
+        '<div class="zen-modal__header">' +
+          '<h2 class="zen-h4" id="izm-setup-title">Before this add-in can show real data</h2>' +
+          '<button type="button" class="zen-modal__close" onclick="IZM.closeSetup()" aria-label="Close setup instructions">' +
+            '<svg viewBox="0 0 14 14" aria-hidden="true"><path d="M11.3 1.3 7 5.6 2.7 1.3 1.3 2.7 5.6 7l-4.3 4.3 1.4 1.4L7 8.4l4.3 4.3 1.4-1.4L8.4 7l4.3-4.3z"/></svg>' +
+          '</button>' +
+        '</div>' +
+        '<div class="zen-modal__body">' +
+
+          '<p style="margin:0 0 16px;color:var(--text-secondary)">This add-in does not detect impounds itself. ' +
+          'It reads events that MyGeotab already produces. Three things have to exist in the database first.</p>' +
+
+          '<div style="margin-bottom:20px">' +
+            '<h3 class="zen-h5" style="margin-bottom:8px">Current state of this database</h3>' +
+            (connected
+              ? checkRow(checks.zones ? checks.zones.ok : null, 'Impound zones', checks.zones ? checks.zones.detail : 'not checked yet') +
+                checkRow(checks.rule ? checks.rule.ok : null, 'Rule "' + CFG.RULE_NAME + '"', checks.rule ? checks.rule.detail : 'not checked yet') +
+                checkRow(checks.events ? checks.events.ok : null, 'Events in window', checks.events ? checks.events.detail : 'not checked yet')
+              : checkRow(null, 'Not connected', 'open this from the MyGeotab menu')) +
+          '</div>' +
+
+          '<div class="izm-step">' +
+            '<div class="izm-step__num">1</div><div>' +
+            '<div class="izm-step__title">Create the zone type <code>' + esc(CFG.ZONE_TYPE_NAME) + '</code>, then import the lots</div>' +
+            '<div class="izm-step__body">Under <strong>Zones &amp; Messages → Zone Types</strong>, add a type called ' +
+            '<code>' + esc(CFG.ZONE_TYPE_NAME) + '</code>. Create it once.<br><br>' +
+            'Then <strong>Zones &amp; Messages → Zones → Import</strong> the lot list and tag every zone with that type. ' +
+            'Each lot needs a boundary; a 30 m radius around the street address is what our analysis used.<br><br>' +
+            '<strong>The zone type is what this add-in filters on.</strong> Zone names are never parsed — whatever the import ' +
+            'writes is shown as-is in the tables, so <code>Impound Lot - Westway Towing</code> appears exactly like that. ' +
+            'Name them however you like.<br><br>' +
+            'If the zone type is missing the page falls back to matching names containing "impound" so you still see something, ' +
+            'but it flags a warning. Do not rely on that.</div>' +
+          '</div></div>' +
+
+          '<div class="izm-step">' +
+            '<div class="izm-step__num">2</div><div>' +
+            '<div class="izm-step__title">Create the rule <code>' + esc(CFG.RULE_NAME) + '</code></div>' +
+            '<div class="izm-step__body">Go to <strong>Rules &amp; Groups → Rules → Add rule</strong>. The name has to match exactly — ' +
+            'this add-in looks it up by name.<br><br>' +
+            'Condition: <strong>vehicle is stopped inside a zone</strong>, zones = your <code>Impound</code> set, ' +
+            'duration <strong>12 hours or longer</strong>. Twelve hours is what separates a genuine impound from a delivery stop.<br><br>' +
+            'Apply it to the vehicle groups you want covered.</div>' +
+          '</div></div>' +
+
+          '<div class="izm-step">' +
+            '<div class="izm-step__num">3</div><div>' +
+            '<div class="izm-step__title">Let the events flow in</div>' +
+            '<div class="izm-step__body">When a vehicle trips the rule, MyGeotab writes an <strong>exception event</strong> — ' +
+            'the interface now calls these <strong>Events</strong>, but the API object is still <code>ExceptionEvent</code>. ' +
+            'This page reads them with <code>Get ExceptionEvent</code> filtered to your rule.<br><br>' +
+            'An event with no end date is an open impound and appears under <em>Currently impounded</em>. ' +
+            'Once the vehicle leaves the zone the event closes and moves to <em>Impound history</em>.</div>' +
+          '</div></div>' +
+
+          '<div class="zen-banner zen-banner--info" style="margin-top:16px">' +
+            '<div class="zen-banner__content">' +
+              '<svg class="zen-banner__icon" viewBox="0 0 20 20" aria-hidden="true">' + ICON_INFO + '</svg>' +
+              '<div class="zen-banner__text" style="font-size:13px;line-height:19px">' +
+              '<strong>How the lot name is resolved.</strong> An exception event records the vehicle, the rule and the times — ' +
+              'but not which zone triggered it. So the add-in works it out from position.<br><br>' +
+              '<strong>Open impounds:</strong> the vehicle is still there, so its current position from <code>DeviceStatusInfo</code> ' +
+              'is tested against your impound zone boundaries.<br>' +
+              '<strong>Closed impounds:</strong> the vehicle has left, so instead the add-in finds the <code>Trip</code> that ' +
+              'stopped at the moment the event opened and reads its <code>stopPoint</code>. One tight-window lookup per event, ' +
+              'batched 100 at a time through <code>multiCall</code>.<br><br>' +
+              'Both then run a point-in-polygon test with a 200 m nearest-zone fallback for GPS drift.</div>' +
+            '</div><div></div>' +
+          '</div>' +
+
+        '</div>' +
+        '<div class="zen-modal__footer">' +
+          '<button type="button" class="zen-button" onclick="IZM.closeSetup()">Close</button>' +
+          (connected ? '<button type="button" class="zen-button zen-button--primary zen-button--tall" onclick="IZM.closeSetup();IZM.setMode(\'live\')">Re-check and load live data</button>' : '') +
+        '</div>' +
+      '</div></div>';
+    el('izm-modal-slot').innerHTML = html;
+    var close = document.querySelector('#izm-root .zen-modal__close');
+    if (close) close.focus();
+    document.addEventListener('keydown', escClose);
+  }
+  function escClose(e) { if (e.key === 'Escape') closeSetup(); }
+  function closeSetup() {
+    el('izm-modal-slot').innerHTML = '';
+    document.removeEventListener('keydown', escClose);
+  }
+
+  // ================= PUBLIC =================
+  var IZM = {
+    setMode: function (m) {
+      mode = m;
+      data.error = null;
+      syncModeUI();
+      if (m === 'mock') {
+        var mk = buildMock(); data.active = mk.active; data.history = mk.history; data.lots = mk.lots; renderAll();
+      } else if (m === 'enterprise') {
+        var en = buildEnterprise(); data.active = en.active; data.history = en.history; data.lots = en.lots; renderAll();
+      } else if (!api) {
+        data.active = []; data.history = []; data.lots = 0; data.loading = false; renderAll();
+      } else {
+        loadLive();
+      }
+    },
+    refresh: function () {
+      var b = el('izm-refresh'); b.disabled = true;
+      if (mode === 'live' && api) {
+        loadLive().then(function () { b.disabled = false; toast('Reloaded from database'); });
+      } else {
+        IZM.setMode(mode); b.disabled = false;
+        toast(mode === 'enterprise' ? 'Recalculated at ' + money(rate) + '/day' : 'Mock data regenerated');
+      }
+    },
+    setRate: function (v) { var n = parseFloat(v); rate = isNaN(n) || n < 0 ? 0 : n; renderHero(); renderTiles(); renderActive(); renderHistory(); },
+    setWindow: function (v) { windowDays = parseInt(v, 10) || 90; if (mode === 'live') loadLive(); else renderHistory(); },
+    renderActive: renderActive,
+    renderHistory: renderHistory,
+    toggleMonth: function (btn) {
+      var m = btn.closest('.izm-month');
+      var open = m.getAttribute('data-open') !== 'true';
+      m.setAttribute('data-open', String(open));
+      btn.setAttribute('aria-expanded', String(open));
+    },
+    viewOnMap: function (deviceId) {
+      if (pageState && typeof pageState.gotoPage === 'function') {
+        pageState.gotoPage('map', { liveVehicleIds: [deviceId] });
+      } else {
+        toast('Would open the map at device ' + deviceId + ' (needs to run inside MyGeotab)');
+      }
+    },
+    openSetup: openSetup,
+    closeSetup: closeSetup,
+    exportCSV: function () {
+      var cap = targetBilledDays();
+      var rows = [['Status', 'Vehicle', 'VIN', 'Plate', 'Impound lot', 'Lot address', 'Entered', 'Released',
+                   'Hours held', 'Days billed', 'Rate/day', 'Storage cost',
+                   'Cost at ' + CFG.TARGET_DAYS + '-day recovery', 'Recoverable',
+                   'Picked up from', 'Ended at']];
+      data.active.concat(data.history).forEach(function (r) {
+        var days = Math.max(1, Math.ceil(r.hours / 24));
+        var tgt = Math.min(days, cap) * rate;
+        rows.push([r.active ? 'Open' : 'Released', r.vehicle, r.vin, r.plate, r.lot, r.lotAddr || '',
+          r.start.toISOString(), r.end ? r.end.toISOString() : '', r.hours.toFixed(1), days, rate,
+          days * rate, tgt, (days * rate) - tgt, r.startGps || '', r.endGps || '']);
+      });
+      var csv = rows.map(function (r) {
+        return r.map(function (c) { return '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"'; }).join(',');
+      }).join('\n');
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+      a.download = 'impound_' + mode + '_' + new Date().toISOString().slice(0, 10) + '.csv';
+      a.click(); URL.revokeObjectURL(a.href);
+      toast('Exported ' + (rows.length - 1) + ' rows');
+    }
+  };
+  global.IZM = IZM;
+
+  function syncModeUI() {
+    el('izm-mode-mock').setAttribute('aria-pressed', String(mode === 'mock'));
+    el('izm-mode-live').setAttribute('aria-pressed', String(mode === 'live'));
+    var entBtn = el('izm-mode-ent');
+    if (entBtn) entBtn.setAttribute('aria-pressed', String(mode === 'enterprise'));
+
+    var badge = el('izm-mode-badge'), tone, label, sub;
+    if (mode === 'enterprise') {
+      tone = 'general'; label = 'Enterprise 2025';
+      sub = '80 confirmed tows · a customer database · Jun–Jul 2025';
+    } else if (mode === 'live') {
+      tone = api ? 'success' : 'warning';
+      label = api ? 'Live database' : 'Live — not connected';
+      sub = api ? 'Reading events from the "' + CFG.RULE_NAME + '" rule'
+                : 'Open this inside MyGeotab to read real events';
+    } else {
+      tone = 'general'; label = 'Mock data'; sub = 'Sample dataset — no database connection';
+    }
+    badge.className = 'izm-chip izm-chip--' + tone;
+    badge.innerHTML = '<span class="izm-chip__dot"></span>' + esc(label);
+    el('izm-subline').textContent = sub;
+
+    // The severity filter and history window only apply to live/mock event data.
+    var histOnly = mode === 'enterprise';
+    el('izm-sev').disabled = histOnly;
+    el('izm-window').disabled = histOnly;
+    el('izm-window').parentElement.style.display = histOnly ? 'none' : '';
+  }
+
+  function boot(_api, _state) {
+    api = _api || null;
+    pageState = _state || null;
+    el('izm-rate').value = CFG.DEFAULT_RATE;
+    rate = CFG.DEFAULT_RATE;
+    // Live where we can, mock where we cannot.
+    mode = api ? 'live' : 'mock';
+    syncModeUI();
+    if (api) loadLive(); else { var mk = buildMock(); data.active = mk.active; data.history = mk.history; data.lots = mk.lots; renderAll(); }
+  }
+
+  // ---- MyGeotab add-in lifecycle ----
+  global.geotab = global.geotab || {};
+  global.geotab.addin = global.geotab.addin || {};
+  global.geotab.addin.impoundMonitor = function (api, state) {
+    return {
+      initialize: function (api, state, callback) { boot(api, state); callback(); },
+      focus: function (a, st) { if (st) pageState = st; if (mode === 'live' && api) loadLive(); },
+      blur: function () { closeSetup(); }
+    };
+  };
+
+  // ---- Standalone preview ----
+  if (!global.__IZM_IN_GEOTAB__) {
+    document.addEventListener('DOMContentLoaded', function () { boot(null, null); });
+    if (document.readyState !== 'loading') boot(null, null);
+  }
+})(window);
+</script>
+</body>
+</html>
