@@ -1273,7 +1273,7 @@
   }
 
   // ================= SETUP MODAL =================
-  function checkRow(state, label, value) {
+  function checkRow(state, label, value, action) {
     var cls = state === true ? 'ok' : state === false ? 'bad' : 'unknown';
     var icon = state === true
       ? '<path d="M8 1a7 7 0 100 14A7 7 0 008 1Zm3.2 5.3-3.9 3.9a.8.8 0 01-1.1 0L4.8 8.8a.8.8 0 111.1-1.1l.9.9 3.3-3.4a.8.8 0 011.1 1.1Z"/>'
@@ -1283,7 +1283,8 @@
     return '<div class="izm-check izm-check--' + cls + '">' +
       '<svg class="izm-check__icon" viewBox="0 0 16 16" aria-hidden="true">' + icon + '</svg>' +
       '<span class="izm-check__label">' + esc(label) + '</span>' +
-      '<span class="izm-check__value">' + esc(value) + '</span></div>';
+      '<span class="izm-check__value">' + esc(value) + '</span>' +
+      (action ? '<span style="margin-left:8px;font-size:12px">' + action + '</span>' : '') + '</div>';
   }
 
   function openSetup() {
@@ -1306,9 +1307,13 @@
             '<h3 class="zen-h5" style="margin-bottom:8px">Current state of this database</h3>' +
             (connected
               ? checkRow(zoneTypeSeen, 'Zone type "' + CFG.ZONE_TYPE_NAME + '"',
-                         zoneTypeSeen === true ? 'exists' : zoneTypeSeen === false ? 'not created yet' : 'not checked yet') +
+                         zoneTypeSeen === true ? 'exists · id ' + zoneTypeId
+                           : zoneTypeSeen === false ? 'not created yet' : 'not checked yet') +
                 checkRow(checks.zones ? checks.zones.ok : null, 'Zones tagged with it',
-                         checks.zones ? checks.zones.detail : 'not checked yet') +
+                         checks.zones ? checks.zones.detail : 'not checked yet',
+                         (zoneTypeId && data.lots)
+                           ? '<a href="#" class="izm-tilelink" onclick="IZM.closeSetup();IZM.viewZones();return false;">view list</a>'
+                           : '') +
                 checkRow(checks.rule ? checks.rule.ok : null, 'Rule "' + CFG.RULE_NAME + '"',
                          checks.rule ? (checks.rule.ok ? 'exists · id ' + checks.rule.detail : 'not created yet') : 'not checked yet') +
                 checkRow(checks.events ? checks.events.ok : null, 'Events in the last ' + windowDays + ' days',
