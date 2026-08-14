@@ -307,6 +307,14 @@
 :is(#izm-root,.izm-modal-root) .izm-spec{border-collapse:collapse;width:100%;margin:8px 0;font-size:13px}
 :is(#izm-root,.izm-modal-root) .izm-spec th{text-align:left;font-weight:500;color:var(--text-primary);padding:5px 12px 5px 0;white-space:nowrap;vertical-align:top;width:96px}
 :is(#izm-root,.izm-modal-root) .izm-spec td{padding:5px 0;color:var(--text-secondary);vertical-align:top}
+:is(#izm-root,.izm-modal-root) .izm-spec--num th{width:28px;padding:6px 10px 6px 0;text-align:left}
+:is(#izm-root,.izm-modal-root) .izm-spec--num th>span,
+:is(#izm-root,.izm-modal-root) .izm-spec--num th{color:var(--accents-general--detail);font-weight:500}
+:is(#izm-root,.izm-modal-root) .izm-spec--num td{padding:6px 0;color:var(--text-primary)}
+:is(#izm-root,.izm-modal-root) .izm-copyrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  background:var(--backgrounds-content-0);border:1px solid var(--borders-general);border-radius:var(--border-radius-default);padding:8px 10px}
+:is(#izm-root,.izm-modal-root) .izm-copyrow__label{font-size:12px;letter-spacing:.32px;color:var(--text-secondary);min-width:38px}
+:is(#izm-root,.izm-modal-root) .izm-copyrow__val{flex:1;font-size:14px;background:none;border:0;padding:0;color:var(--text-primary);font-weight:500}
 :is(#izm-root,.izm-modal-root) .izm-code{font-family:var(--main-font-data);font-size:11.5px;line-height:17px;background:var(--backgrounds-content-1);
   border:1px solid var(--borders-general);border-radius:var(--border-radius-default);padding:10px 12px;overflow:auto;max-height:260px;margin:0 0 8px;white-space:pre}
 
@@ -1340,6 +1348,10 @@
       (action ? '<span style="margin-left:8px;font-size:12px">' + action + '</span>' : '') + '</div>';
   }
 
+  function allGreen() {
+    return !!(checks.zones && checks.zones.ok && checks.rule && checks.rule.ok);
+  }
+
   function openSetup() {
     var connected = !!api;
     var html =
@@ -1350,8 +1362,14 @@
         '</div>' +
         '<div class="izm-setup__body">' +
 
-          '<p style="margin:0 0 16px;color:var(--text-secondary)">This add-in does not detect impounds itself. ' +
-          'It reads events that MyGeotab already produces. Three things have to exist in the database first.</p>' +
+          (allGreen()
+            ? '<div class="zen-banner zen-banner--info" style="margin-bottom:16px"><div class="zen-banner__content">' +
+              '<svg class="zen-banner__icon" viewBox="0 0 20 20" aria-hidden="true">' + ICON_INFO + '</svg>' +
+              '<div class="zen-banner__text" style="font-size:13px">Everything is configured. These steps stay here for reference — ' +
+              'handy when you add lots, change the threshold, or set the same thing up in another database.</div>' +
+              '</div><div></div></div>'
+            : '<p style="margin:0 0 16px;color:var(--text-secondary)">This add-in does not detect impounds itself. ' +
+              'It reads events that MyGeotab already produces. Three things have to exist in the database first.</p>') +
 
           '<div style="margin-bottom:20px">' +
             '<h3 class="zen-h5" style="margin-bottom:8px">Current state of this database</h3>' +
@@ -1387,23 +1405,33 @@
 
           '<div class="izm-step">' +
             '<div class="izm-step__num">2</div><div>' +
-            '<div class="izm-step__title">Create the rule <code>' + esc(CFG.RULE_NAME) + '</code></div>' +
+            '<div class="izm-step__title">Create the rule</div>' +
             '<div class="izm-step__body">' +
-            '<p style="margin:0 0 8px">Build it in <strong>Rules &amp; Groups → Rules → Add rule</strong>. ' +
-            'In the Zone dropdown, choose <strong>zone type</strong> rather than individual zones and pick ' +
-            '<code>' + esc(CFG.ZONE_TYPE_NAME) + '</code>. One condition then covers every lot, including any you import later.</p>' +
-            '<table class="izm-spec"><tbody>' +
-              '<tr><th>Name</th><td><code>' + esc(CFG.RULE_NAME) + '</code> — exact, this add-in looks it up by name</td></tr>' +
-              '<tr><th>Type</th><td>Zone rule (exception rule)</td></tr>' +
-              '<tr><th>Zone</th><td>zone <strong>type</strong> = <code>' + esc(CFG.ZONE_TYPE_NAME) + '</code> (not individual zones)</td></tr>' +
-              '<tr><th>Condition</th><td>vehicle <strong>stopped</strong> in the zone (<code>ZoneStop</code>)</td></tr>' +
-              '<tr><th>AND</th><td>duration <strong>longer than 12 hours</strong> (<code>43200</code> seconds)</td></tr>' +
-              '<tr><th>Applies to</th><td>the vehicle groups you want covered (Company covers everything)</td></tr>' +
+            '<p style="margin:0 0 10px">Go to <strong>Rules &amp; Groups → Rules → Add</strong>, then fill it in exactly as below.</p>' +
+
+            '<div class="izm-copyrow">' +
+              '<span class="izm-copyrow__label">Name</span>' +
+              '<code class="izm-copyrow__val">' + esc(CFG.RULE_NAME) + '</code>' +
+              '<button type="button" class="zen-button" onclick="IZM.copyName()">Copy</button>' +
+            '</div>' +
+            '<p style="margin:6px 0 12px;font-size:12px;color:var(--text-secondary)">Copy it rather than typing. ' +
+            'The add-in finds the rule by name, so a trailing space or different capitalisation will break the link.</p>' +
+
+            '<div style="font-weight:500;margin-bottom:6px">Conditions — add all three, joined with AND</div>' +
+            '<table class="izm-spec izm-spec--num"><tbody>' +
+              '<tr><th>1</th><td><strong>Inside Area</strong> → choose <strong>zone type</strong> → ' +
+                '<code>' + esc(CFG.ZONE_TYPE_NAME) + '</code></td></tr>' +
+              '<tr><th>2</th><td><strong>Device Stopped</strong></td></tr>' +
+              '<tr><th>3</th><td><strong>Duration</strong> → <strong>Longer than</strong> → <code>12 hours</code></td></tr>' +
             '</tbody></table>' +
-            '<p style="margin:10px 0 0">Twelve hours is what separates a genuine impound from a delivery stop.</p>' +
-            (connected ? ruleScriptBlock() :
-              '<p style="margin:10px 0 0;color:var(--text-secondary)">Open this inside MyGeotab and this step will generate the ' +
-              'rule definition for you from the zones actually in your database.</p>') +
+            '<p style="margin:8px 0 0;font-size:13px">Reads as <em>“vehicle stopped inside an Impound zone for more than 12 hours”</em>. ' +
+            'The order does not change how it evaluates — an AND group is all-or-nothing — but this order is the clearest to read back.</p>' +
+            '<p style="margin:8px 0 0;font-size:13px"><strong>Check the joins are AND, not OR.</strong> With OR you would get an event ' +
+            'for every vehicle merely inside a lot, and every vehicle stopped anywhere.</p>' +
+            '<p style="margin:8px 0 0;font-size:13px"><strong>Applies to:</strong> Company Group for everything, or pick specific vehicle groups.</p>' +
+            '<p style="margin:10px 0 0;font-size:13px;color:var(--text-secondary)">Twelve hours is what separates a genuine impound ' +
+            'from a delivery stop, and it matches the threshold the cost model assumes.</p>' +
+            (connected ? ruleScriptBlock() : '') +
             '</div>' +
           '</div></div>' +
 
@@ -1531,6 +1559,7 @@
         console.log('Rule created:', id); toast('Rule created'); return loadLive();
       }, function (err) { console.error('Rule creation failed:', err); toast('Rule creation failed — see console'); });
     },
+    copyName: function () { copyText(CFG.RULE_NAME, 'Rule name'); },
     copyRule: function () { copyText(window.__IZM_RULE_JSON || '', 'Rule definition'); },
     recheck: function () { if (api) { loadLive().then(function () { closeSetup(); openSetup(); }); } },
     closeSetup: closeSetup,
