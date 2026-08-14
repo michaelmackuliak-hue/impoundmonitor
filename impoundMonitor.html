@@ -283,6 +283,11 @@
 #izm-root .izm-check--unknown .izm-check__icon{fill:var(--text-placeholder)}
 #izm-root .izm-check__label{flex:1}
 #izm-root .izm-check__value{color:var(--text-secondary);font-size:12px}
+#izm-root .izm-spec{border-collapse:collapse;width:100%;margin:8px 0;font-size:13px}
+#izm-root .izm-spec th{text-align:left;font-weight:500;color:var(--text-primary);padding:5px 12px 5px 0;white-space:nowrap;vertical-align:top;width:96px}
+#izm-root .izm-spec td{padding:5px 0;color:var(--text-secondary);vertical-align:top}
+#izm-root .izm-code{font-family:var(--main-font-data);font-size:11.5px;line-height:17px;background:var(--backgrounds-content-1);
+  border:1px solid var(--borders-general);border-radius:var(--border-radius-default);padding:10px 12px;overflow:auto;max-height:260px;margin:0 0 8px;white-space:pre}
 
 /* ---------- Toast ---------- */
 #izm-root .zen-toasts{position:fixed;bottom:24px;right:24px;z-index:11020;display:grid;gap:8px}
@@ -486,6 +491,9 @@
   var data = { active: [], history: [], lots: 0, loading: false, error: null };
   var checks = { zones: null, rule: null, events: null };
   var zoneFallback = false;   // true when the zone type is missing and we matched on name
+  var foundZones = [];        // Impound zones present in this database
+  var foundRule = null;       // the Impound Lot Detection rule, if it exists
+  var zoneTypeSeen = null;    // true/false once we have looked for the zone type
 
   // ---------------- helpers ----------------
   var esc = function (s) {
@@ -690,11 +698,13 @@
     var from = new Date(Date.now() - windowDays * 86400000);
     var rule = null, zones = [], zoneType = null;
     zoneFallback = false;
+    zoneTypeSeen = null;
 
     // 1. The rule that produces the events
     return call('Get', { typeName: 'Rule', search: { name: CFG.RULE_NAME } })
       .then(function (rules) {
         rule = (rules || [])[0] || null;
+        foundRule = rule;
         checks.rule = rule ? { ok: true, detail: rule.id } : { ok: false, detail: 'not found' };
         // 2. The zones. Prefer a ZoneType named "Impound".
         return call('Get', { typeName: 'ZoneType' }).catch(function () { return []; });
@@ -707,6 +717,7 @@
       })
       .then(function (allZones) {
         allZones = allZones || [];
+        zoneTypeSeen = !!zoneType;
         if (zoneType) {
           // Normal path: the zone type is the contract.
           zones = allZones.filter(function (z) {
@@ -727,6 +738,7 @@
             : zones.length + ' zone' + (zones.length === 1 ? '' : 's') + ' tagged "' + CFG.ZONE_TYPE_NAME + '"'
         };
         data.lots = zones.length;
+        foundZones = zones;
         if (!rule) return [];
         // Respect the group filter the user has set in the MyGeotab header.
         var search = { ruleSearch: { id: rule.id }, fromDate: from.toISOString() };
@@ -1167,6 +1179,70 @@
 
   function renderAll() { renderBanner(); renderHero(); renderTiles(); renderActive(); renderHistory(); }
 
+
+  // ---- Rule definition -------------------------------------------------
+  // ZoneStop conditions reference individual zones (Condition has a `zone`
+  // property, not a zone type), so the rule enumerates every impound zone
+  // under an Or. Duration is a sibling DurationLongerThan in seconds.
+  function buildRuleJSON(zones, hours) {
+    var zoneNodes = (zones || []).map(function (z) {
+      return { conditionType: { id: 'ZoneStop' }, zone: { id: z.id } };
+    });
+    return {
+      name: CFG.RULE_NAME,
+      baseType: 'Zone',
+      comment: 'Fires when a vehicle stops inside an Impound zone for ' + hours + ' hours or more.',
+      activeFrom: '1986-01-01T00:00:00.000Z',
+      activeTo: '2050-01-01T00:00:00.000Z',
+      groups: [{ id: 'GroupCompanyId' }],
+      condition: {
+        conditionType: { id: 'And' },
+        children: [
+          zoneNodes.length === 1 ? zoneNodes[0]
+            : { conditionType: { id: 'Or' }, children: zoneNodes },
+          { conditionType: { id: 'DurationLongerThan' }, value: hours * 3600 }
+        ]
+      }
+    };
+  }
+
+  function copyText(text, label) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { toast(label + ' copied'); },
+                                               function () { toast('Copy failed — select it manually'); });
+    } else { toast('Copy not available — select it manually'); }
+  }
+
+
+  function ruleScriptBlock() {
+    if (!foundZones.length) {
+      return '<div class="zen-banner zen-banner--warning" style="margin-top:12px">' +
+        '<div class="zen-banner__content">' +
+        '<svg class="zen-banner__icon" viewBox="0 0 20 20" aria-hidden="true">' + ICON_WARN + '</svg>' +
+        '<div class="zen-banner__text" style="font-size:13px">No Impound zones found yet, so there is nothing to build a rule from. ' +
+        'Do step 1 first, then reopen this panel.</div></div><div></div></div>';
+    }
+    var hours = 12;
+    var json = JSON.stringify(buildRuleJSON(foundZones, hours), null, 2);
+    var preview = foundZones.length > 5
+      ? JSON.stringify(buildRuleJSON(foundZones.slice(0, 3), hours), null, 2)
+          .replace(/\n\s*\]\n\s*\},/, '\n        ... and ' + (foundZones.length - 3) + ' more zones\n      ]\n    },')
+      : json;
+    window.__IZM_RULE_JSON = json;
+    return '<div style="margin-top:14px">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap">' +
+        '<strong style="font-size:13px">Rule definition, generated from your ' + foundZones.length + ' Impound zone' +
+          (foundZones.length === 1 ? '' : 's') + '</strong>' +
+        '<button type="button" class="zen-button" onclick="IZM.copyRule()">Copy JSON</button>' +
+      '</div>' +
+      '<pre class="izm-code">' + esc(preview) + '</pre>' +
+      '<div style="font-size:13px;margin-top:10px"><strong>To create it</strong> — save that JSON as <code>rule.json</code>, then:</div>' +
+      '<pre class="izm-code">cli-mygeotab rule create --from-file rule.json</pre>' +
+      '<div style="font-size:12px;color:var(--text-secondary)">The CLI asks you to confirm before it writes. ' +
+      'Or build the same thing by hand in <strong>Rules &amp; Groups → Rules → Add rule</strong> using the table above.</div>' +
+      '</div>';
+  }
+
   // ================= SETUP MODAL =================
   function checkRow(state, label, value) {
     var cls = state === true ? 'ok' : state === false ? 'bad' : 'unknown';
@@ -1200,10 +1276,15 @@
           '<div style="margin-bottom:20px">' +
             '<h3 class="zen-h5" style="margin-bottom:8px">Current state of this database</h3>' +
             (connected
-              ? checkRow(checks.zones ? checks.zones.ok : null, 'Impound zones', checks.zones ? checks.zones.detail : 'not checked yet') +
-                checkRow(checks.rule ? checks.rule.ok : null, 'Rule "' + CFG.RULE_NAME + '"', checks.rule ? checks.rule.detail : 'not checked yet') +
-                checkRow(checks.events ? checks.events.ok : null, 'Events in window', checks.events ? checks.events.detail : 'not checked yet')
-              : checkRow(null, 'Not connected', 'open this from the MyGeotab menu')) +
+              ? checkRow(zoneTypeSeen, 'Zone type "' + CFG.ZONE_TYPE_NAME + '"',
+                         zoneTypeSeen === true ? 'exists' : zoneTypeSeen === false ? 'not created yet' : 'not checked yet') +
+                checkRow(checks.zones ? checks.zones.ok : null, 'Zones tagged with it',
+                         checks.zones ? checks.zones.detail : 'not checked yet') +
+                checkRow(checks.rule ? checks.rule.ok : null, 'Rule "' + CFG.RULE_NAME + '"',
+                         checks.rule ? (checks.rule.ok ? 'exists · id ' + checks.rule.detail : 'not created yet') : 'not checked yet') +
+                checkRow(checks.events ? checks.events.ok : null, 'Events in the last ' + windowDays + ' days',
+                         checks.events ? checks.events.detail : 'not checked yet')
+              : checkRow(null, 'Not connected', 'open this page from inside MyGeotab')) +
           '</div>' +
 
           '<div class="izm-step">' +
@@ -1223,11 +1304,22 @@
           '<div class="izm-step">' +
             '<div class="izm-step__num">2</div><div>' +
             '<div class="izm-step__title">Create the rule <code>' + esc(CFG.RULE_NAME) + '</code></div>' +
-            '<div class="izm-step__body">Go to <strong>Rules &amp; Groups → Rules → Add rule</strong>. The name has to match exactly — ' +
-            'this add-in looks it up by name.<br><br>' +
-            'Condition: <strong>vehicle is stopped inside a zone</strong>, zones = your <code>Impound</code> set, ' +
-            'duration <strong>12 hours or longer</strong>. Twelve hours is what separates a genuine impound from a delivery stop.<br><br>' +
-            'Apply it to the vehicle groups you want covered.</div>' +
+            '<div class="izm-step__body">' +
+            '<table class="izm-spec"><tbody>' +
+              '<tr><th>Name</th><td><code>' + esc(CFG.RULE_NAME) + '</code> — exact, this add-in looks it up by name</td></tr>' +
+              '<tr><th>Type</th><td>Zone rule (exception rule)</td></tr>' +
+              '<tr><th>Condition</th><td><code>ZoneStop</code> on each Impound zone, joined by <code>Or</code></td></tr>' +
+              '<tr><th>AND</th><td><code>DurationLongerThan</code> = <code>43200</code> seconds (12 hours)</td></tr>' +
+              '<tr><th>Applies to</th><td>the vehicle groups you want covered (Company group covers everything)</td></tr>' +
+            '</tbody></table>' +
+            '<p style="margin:10px 0 4px">Twelve hours is what separates a genuine impound from a delivery stop.</p>' +
+            '<p style="margin:4px 0 0"><strong>Heads up:</strong> a <code>ZoneStop</code> condition points at one specific zone — ' +
+            'there is no “any zone of this type” option. The rule therefore has to list every impound zone. ' +
+            'Workable for tens or hundreds; not for tens of thousands.</p>' +
+            (connected ? ruleScriptBlock() :
+              '<p style="margin:10px 0 0;color:var(--text-secondary)">Open this inside MyGeotab and this step will generate the ' +
+              'rule definition for you from the zones actually in your database.</p>') +
+            '</div>' +
           '</div></div>' +
 
           '<div class="izm-step">' +
@@ -1258,6 +1350,7 @@
         '</div>' +
         '<div class="zen-modal__footer">' +
           '<button type="button" class="zen-button" onclick="IZM.closeSetup()">Close</button>' +
+          (connected ? '<button type="button" class="zen-button" onclick="IZM.recheck()">Re-run checks</button>' : '') +
           (connected ? '<button type="button" class="zen-button zen-button--primary zen-button--tall" onclick="IZM.closeSetup();IZM.setMode(\'live\')">Re-check and load live data</button>' : '') +
         '</div>' +
       '</div></div>';
@@ -1315,6 +1408,8 @@
       }
     },
     openSetup: openSetup,
+    copyRule: function () { copyText(window.__IZM_RULE_JSON || '', 'Rule definition'); },
+    recheck: function () { if (api) { loadLive().then(function () { closeSetup(); openSetup(); }); } },
     closeSetup: closeSetup,
     exportCSV: function () {
       var cap = targetBilledDays();
