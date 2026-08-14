@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Impound Monitor — Geotab Add-In</title>
+
+</head>
+<body style="margin:0">
 <style>
 /* ============================================================
    Impound Monitor — Zenith 3.7.0 compliant
@@ -54,10 +57,11 @@
   color:var(--text-primary);
   background:var(--backgrounds-content-0);
   display:flex; flex-direction:column;
-  height:100%; min-height:100vh; box-sizing:border-box;
+  min-height:600px; box-sizing:border-box;
   -webkit-font-smoothing:antialiased;
 }
 #izm-root *,#izm-root *::before,#izm-root *::after{box-sizing:border-box}
+#izm-root svg{max-width:100%;max-height:100%}
 
 /* Focus visibility — WCAG 2.2 AA (2.4.7, 2.4.11). Never removed, 3:1 contrast. */
 #izm-root :focus-visible{
@@ -322,8 +326,6 @@
   #izm-root .zen-h1{font-size:20px;line-height:28px}
 }
 </style>
-</head>
-<body style="margin:0">
 
 <div id="izm-root">
 
