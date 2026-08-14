@@ -1493,6 +1493,39 @@
     },
     openSetup: openSetup,
     viewZones: viewZones,
+
+    // ---- Console helpers -------------------------------------------------
+    // Usable from devtools when the in-app panel is awkward to read.
+    //   IZM.status()      what the database currently has
+    //   IZM.ruleJSON()    prints the rule definition and copies it
+    //   IZM.createRule()  creates the rule directly (asks first)
+    status: function () {
+      var out = {
+        build: CFG.BUILD, mode: mode, connected: !!api,
+        zoneType: CFG.ZONE_TYPE_NAME, zoneTypeId: zoneTypeId,
+        zonesTagged: foundZones.length, matchedByName: zoneFallback,
+        rule: foundRule ? { id: foundRule.id, name: foundRule.name } : null,
+        openEvents: data.active.length, closedEvents: data.history.length,
+        error: data.error || null
+      };
+      console.table(out); return out;
+    },
+    ruleJSON: function (hours) {
+      if (!foundZones.length) { console.warn('No Impound zones found — run IZM.status() first.'); return null; }
+      var j = JSON.stringify(buildRuleJSON(foundZones, hours || 12), null, 2);
+      console.log(j); copyText(j, 'Rule definition'); return j;
+    },
+    createRule: function (hours) {
+      if (!api) { console.warn('Not connected to a database.'); return; }
+      if (foundRule) { console.warn('Rule already exists: ' + foundRule.id); return; }
+      if (!foundZones.length) { console.warn('No Impound zones found — nothing to build a rule from.'); return; }
+      var def = buildRuleJSON(foundZones, hours || 12);
+      if (!window.confirm('Create the rule "' + CFG.RULE_NAME + '" covering ' +
+          foundZones.length + ' zone(s) with a ' + (hours || 12) + ' hour threshold?')) return;
+      return call('Add', { typeName: 'Rule', entity: def }).then(function (id) {
+        console.log('Rule created:', id); toast('Rule created'); return loadLive();
+      }, function (err) { console.error('Rule creation failed:', err); toast('Rule creation failed — see console'); });
+    },
     copyRule: function () { copyText(window.__IZM_RULE_JSON || '', 'Rule definition'); },
     recheck: function () { if (api) { loadLive().then(function () { closeSetup(); openSetup(); }); } },
     closeSetup: closeSetup,
