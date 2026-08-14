@@ -355,6 +355,17 @@
 .izm-modal-root{position:static;display:block;min-height:0;background:none;color:var(--text-primary);font-family:var(--main-font)}
 .izm-modal-root .zen-shield{z-index:2147483000}
 .izm-modal-root .zen-modal{opacity:1;background:#FFFFFF;color:#1F2833}
+
+/* ---------- Setup guide (inline, not an overlay) ---------- */
+:is(#izm-root,.izm-modal-root) .izm-setup{border-left:4px solid var(--action-primary--default);color:var(--text-primary)}
+:is(#izm-root,.izm-modal-root) .izm-setup__head{display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding-bottom:12px;border-bottom:1px solid var(--borders-general);margin-bottom:4px}
+:is(#izm-root,.izm-modal-root) .izm-setup__head h2{outline:none}
+:is(#izm-root,.izm-modal-root) .izm-setup__body{font-size:14px;line-height:22px;color:var(--text-primary);
+  max-height:none;overflow:visible;padding:4px 0}
+:is(#izm-root,.izm-modal-root) .izm-setup__body p{color:var(--text-primary)}
+:is(#izm-root,.izm-modal-root) .izm-setup__foot{display:flex;justify-content:flex-end;gap:8px;
+  padding-top:12px;border-top:1px solid var(--borders-general);margin-top:12px}
 </style>
 
 <div id="izm-root">
@@ -399,6 +410,9 @@
   <div class="izm-body">
 
     <div id="izm-banner-slot" aria-live="polite"></div>
+
+    <!-- Setup guide, rendered inline rather than as an overlay -->
+    <div id="izm-setup-slot"></div>
 
     <!-- Savings hero (Enterprise tab only) -->
     <div id="izm-hero-slot"></div>
@@ -1329,15 +1343,12 @@
   function openSetup() {
     var connected = !!api;
     var html =
-      '<div class="zen-shield" role="presentation" onclick="if(event.target===this)IZM.closeSetup()">' +
-      '<div class="zen-modal" role="dialog" aria-modal="true" aria-labelledby="izm-setup-title">' +
-        '<div class="zen-modal__header">' +
+      '<section class="zen-card-container izm-setup" aria-labelledby="izm-setup-title">' +
+        '<div class="izm-setup__head">' +
           '<h2 class="zen-h4" id="izm-setup-title">Before this add-in can show real data</h2>' +
-          '<button type="button" class="zen-modal__close" onclick="IZM.closeSetup()" aria-label="Close setup instructions">' +
-            '<svg viewBox="0 0 14 14" aria-hidden="true"><path d="M11.3 1.3 7 5.6 2.7 1.3 1.3 2.7 5.6 7l-4.3 4.3 1.4 1.4L7 8.4l4.3 4.3 1.4-1.4L8.4 7l4.3-4.3z"/></svg>' +
-          '</button>' +
+          '<button type="button" class="zen-button" onclick="IZM.closeSetup()">Close</button>' +
         '</div>' +
-        '<div class="zen-modal__body">' +
+        '<div class="izm-setup__body">' +
 
           '<p style="margin:0 0 16px;color:var(--text-secondary)">This add-in does not detect impounds itself. ' +
           'It reads events that MyGeotab already produces. Three things have to exist in the database first.</p>' +
@@ -1422,30 +1433,24 @@
           '</div>' +
 
         '</div>' +
-        '<div class="zen-modal__footer">' +
-          '<button type="button" class="zen-button" onclick="IZM.closeSetup()">Close</button>' +
+        '<div class="izm-setup__foot">' +
           (connected ? '<button type="button" class="zen-button" onclick="IZM.recheck()">Re-run checks</button>' : '') +
-          (connected ? '<button type="button" class="zen-button zen-button--primary zen-button--tall" onclick="IZM.closeSetup();IZM.setMode(\'live\')">Re-check and load live data</button>' : '') +
+          '<button type="button" class="zen-button" onclick="IZM.closeSetup()">Close</button>' +
         '</div>' +
-      '</div></div>';
-    var host = document.getElementById('izm-modal-root');
-    if (!host) {
-      host = document.createElement('div');
-      host.id = 'izm-modal-root';
-      host.className = 'izm-modal-root';
-      document.body.appendChild(host);
-    }
-    host.innerHTML = html;
-    var close = host.querySelector('.zen-modal__close');
-    if (close) close.focus();
+      '</section>';
+    var slot = el('izm-setup-slot');
+    slot.innerHTML = html;
+    slot.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    var h = slot.querySelector('#izm-setup-title');
+    if (h) { h.setAttribute('tabindex', '-1'); h.focus(); }
     document.addEventListener('keydown', escClose);
   }
   function escClose(e) { if (e.key === 'Escape') closeSetup(); }
   function closeSetup() {
-    var host = document.getElementById('izm-modal-root');
-    if (host) host.remove();
-    var slot = el('izm-modal-slot');
+    var slot = el('izm-setup-slot');
     if (slot) slot.innerHTML = '';
+    var legacy = document.getElementById('izm-modal-root');
+    if (legacy) legacy.remove();
     document.removeEventListener('keydown', escClose);
   }
 
