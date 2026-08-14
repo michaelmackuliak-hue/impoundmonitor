@@ -974,7 +974,7 @@
         { type: 'warning', label: 'Average hold',       value: m.avgHold.toFixed(1) + ' d', hint: 'target is ' + CFG.TARGET_DAYS + ' d' },
         { type: 'error',   label: 'Storage paid',       value: money(m.actual),       hint: m.actualDays + ' billed days' },
         { type: 'success', label: 'Recoverable',        value: money(m.saved),        hint: Math.round(m.pct) + '% of the bill' },
-        { type: 'default', label: 'Lots involved',      value: data.lots,             hint: 'longest hold ' + (longest / 24).toFixed(1) + ' d' }
+        { type: 'default', label: 'Impound lots involved', value: data.lots,           hint: 'longest hold ' + (longest / 24).toFixed(1) + ' d' }
       ].map(function (t) {
         return '<div class="zen-summary-tile' + (t.type !== 'default' ? ' zen-summary-tile--' + t.type : '') + '">' +
           '<span class="zen-summary-tile__label">' + esc(t.label) + '</span>' +
@@ -996,7 +996,10 @@
       { type: 'warning', label: 'Average time held', value: fmtDur(avg), hint: 'across open events' },
       { type: 'error', label: 'Storage accrued', value: money(accrued), hint: 'at ' + money(rate) + '/day' },
       { type: 'success', label: 'Released in window', value: recovered, hint: 'average ' + fmtDur(recAvg) },
-      { type: 'default', label: 'Lots monitored', value: data.lots || 0, hint: mode === 'mock' ? 'sample list' : 'impound zones' }
+      { type: 'default', label: 'Impound lots monitored', value: (data.lots || 0).toLocaleString(),
+        hint: mode === 'mock' ? 'sample list'
+            : zoneFallback ? 'matched by name — fix the zone type'
+            : 'zones tagged "' + CFG.ZONE_TYPE_NAME + '"' }
     ];
     el('izm-tiles').innerHTML = tiles.map(function (t) {
       return '<div class="zen-summary-tile' + (t.type !== 'default' ? ' zen-summary-tile--' + t.type : '') + '">' +
@@ -1177,7 +1180,7 @@
       ' across ' + order.length + ' month' + (order.length === 1 ? '' : 's');
   }
 
-  function renderAll() { renderBanner(); renderHero(); renderTiles(); renderActive(); renderHistory(); }
+  function renderAll() { syncModeUI(); renderBanner(); renderHero(); renderTiles(); renderActive(); renderHistory(); }
 
 
   // ---- Rule definition -------------------------------------------------
@@ -1313,9 +1316,12 @@
               '<tr><th>Applies to</th><td>the vehicle groups you want covered (Company group covers everything)</td></tr>' +
             '</tbody></table>' +
             '<p style="margin:10px 0 4px">Twelve hours is what separates a genuine impound from a delivery stop.</p>' +
-            '<p style="margin:4px 0 0"><strong>Heads up:</strong> a <code>ZoneStop</code> condition points at one specific zone — ' +
-            'there is no “any zone of this type” option. The rule therefore has to list every impound zone. ' +
-            'Workable for tens or hundreds; not for tens of thousands.</p>' +
+            '<p style="margin:4px 0 0"><strong>Zones vs zone types.</strong> At the API level a <code>ZoneStop</code> condition ' +
+            'points at one specific zone — the <code>Condition</code> object has a <code>Zone</code> property but no ' +
+            '<code>ZoneType</code>. So the generated JSON below lists every impound zone individually.<br><br>' +
+            '<strong>Check the rule builder UI first.</strong> If <strong>Rules &amp; Groups → Rules → Add rule</strong> lets you ' +
+            'pick a zone <em>type</em>, use that — it is far cleaner and will keep working as lots are added. ' +
+            'The generated JSON is the fallback for when it does not.</p>' +
             (connected ? ruleScriptBlock() :
               '<p style="margin:10px 0 0;color:var(--text-secondary)">Open this inside MyGeotab and this step will generate the ' +
               'rule definition for you from the zones actually in your database.</p>') +
@@ -1456,6 +1462,9 @@
     }
     badge.className = 'izm-chip izm-chip--' + tone;
     badge.innerHTML = '<span class="izm-chip__dot"></span>' + esc(label);
+    if (mode === 'live' && api && data.lots) {
+      sub += ' · ' + data.lots.toLocaleString() + ' impound lot' + (data.lots === 1 ? '' : 's') + ' monitored';
+    }
     el('izm-subline').textContent = sub;
 
     // The severity filter and history window only apply to live/mock event data.
