@@ -515,6 +515,7 @@
   var foundRule = null;       // the Impound Lot Detection rule, if it exists
   var zoneTypeSeen = null;    // true/false once we have looked for the zone type
   var zoneTypeId = null;      // id of the Impound ZoneType, for deep-linking
+  var booted = false;         // true once boot() has run, from either entry point
 
   // ---------------- helpers ----------------
   var esc = function (s) {
@@ -989,6 +990,16 @@
   }
 
   function renderTiles() {
+    if (data.loading) {
+      el('izm-tiles').innerHTML = ['Currently impounded', 'Average time held', 'Storage accrued',
+        'Released in window', 'Impound lots monitored'].map(function (label) {
+        return '<div class="zen-summary-tile">' +
+          '<span class="zen-summary-tile__label">' + esc(label) + '</span>' +
+          '<span class="zen-summary-tile__value" style="color:var(--text-placeholder)">&mdash;</span>' +
+          '<span class="zen-summary-tile__hint">loading&hellip;</span></div>';
+      }).join('');
+      return;
+    }
     if (mode === 'enterprise') {
       var m = savingsModel(data.history);
       var longest = data.history.reduce(function (b, r) { return r.hours > b ? r.hours : b; }, 0);
@@ -1523,6 +1534,7 @@
   }
 
   function boot(_api, _state) {
+    booted = true;
     api = _api || null;
     pageState = _state || null;
     el('izm-rate').value = CFG.DEFAULT_RATE;
@@ -1545,10 +1557,13 @@
   };
 
   // ---- Standalone preview ----
-  if (!global.__IZM_IN_GEOTAB__) {
-    document.addEventListener('DOMContentLoaded', function () { boot(null, null); });
-    if (document.readyState !== 'loading') boot(null, null);
-  }
+  // Inside MyGeotab this file is injected and initialize() is called a moment
+  // later. Booting immediately would paint the mock dataset first and then get
+  // overwritten by live data, which reads as "live mode showing mock numbers".
+  // So wait, and only self-boot if the host never called us.
+  setTimeout(function () {
+    if (!booted) boot(null, null);
+  }, 400);
 })(window);
 </script>
 </body>
