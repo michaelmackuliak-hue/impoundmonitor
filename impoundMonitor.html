@@ -184,6 +184,8 @@
 #izm-root .zen-summary-tile--success{background-color:var(--accents-success--main);border-color:#CDEBD6}
 #izm-root .zen-summary-tile__label{font-size:12px;line-height:16px;letter-spacing:.32px;color:var(--text-secondary)}
 #izm-root .zen-summary-tile__value{font-family:var(--main-font-data);font-size:24px;line-height:32px;font-weight:500;color:var(--text-primary)}
+#izm-root .izm-tilelink{color:var(--text-hyperlink);text-decoration:none;border-bottom:1px solid transparent}
+#izm-root .izm-tilelink:hover{text-decoration:underline}
 #izm-root .zen-summary-tile__hint{font-size:12px;line-height:16px;letter-spacing:.32px;color:var(--text-secondary)}
 
 /* ---------- Table ---------- */
@@ -494,6 +496,7 @@
   var foundZones = [];        // Impound zones present in this database
   var foundRule = null;       // the Impound Lot Detection rule, if it exists
   var zoneTypeSeen = null;    // true/false once we have looked for the zone type
+  var zoneTypeId = null;      // id of the Impound ZoneType, for deep-linking
 
   // ---------------- helpers ----------------
   var esc = function (s) {
@@ -699,6 +702,7 @@
     var rule = null, zones = [], zoneType = null;
     zoneFallback = false;
     zoneTypeSeen = null;
+    zoneTypeId = null;
 
     // 1. The rule that produces the events
     return call('Get', { typeName: 'Rule', search: { name: CFG.RULE_NAME } })
@@ -718,6 +722,7 @@
       .then(function (allZones) {
         allZones = allZones || [];
         zoneTypeSeen = !!zoneType;
+        zoneTypeId = zoneType ? zoneType.id : null;
         if (zoneType) {
           // Normal path: the zone type is the contract.
           zones = allZones.filter(function (z) {
@@ -996,15 +1001,21 @@
       { type: 'warning', label: 'Average time held', value: fmtDur(avg), hint: 'across open events' },
       { type: 'error', label: 'Storage accrued', value: money(accrued), hint: 'at ' + money(rate) + '/day' },
       { type: 'success', label: 'Released in window', value: recovered, hint: 'average ' + fmtDur(recAvg) },
-      { type: 'default', label: 'Impound lots monitored', value: (data.lots || 0).toLocaleString(),
+      { type: 'default', label: 'Impound lots monitored',
+        value: (mode === 'live' && api && data.lots)
+          ? '<a href="#" class="izm-tilelink" onclick="IZM.viewZones();return false;" ' +
+            'aria-label="View the ' + data.lots + ' Impound zones in MyGeotab">' + data.lots.toLocaleString() + '</a>'
+          : (data.lots || 0).toLocaleString(),
+        raw: true,
         hint: mode === 'mock' ? 'sample list'
             : zoneFallback ? 'matched by name — fix the zone type'
+            : (mode === 'live' && api && data.lots) ? 'tagged "' + CFG.ZONE_TYPE_NAME + '" · open list'
             : 'zones tagged "' + CFG.ZONE_TYPE_NAME + '"' }
     ];
     el('izm-tiles').innerHTML = tiles.map(function (t) {
       return '<div class="zen-summary-tile' + (t.type !== 'default' ? ' zen-summary-tile--' + t.type : '') + '">' +
         '<span class="zen-summary-tile__label">' + esc(t.label) + '</span>' +
-        '<span class="zen-summary-tile__value">' + esc(t.value) + '</span>' +
+        '<span class="zen-summary-tile__value">' + (t.raw ? t.value : esc(t.value)) + '</span>' +
         '<span class="zen-summary-tile__hint">' + esc(t.hint) + '</span></div>';
     }).join('');
   }
@@ -1182,6 +1193,19 @@
 
   function renderAll() { syncModeUI(); renderBanner(); renderHero(); renderTiles(); renderActive(); renderHistory(); }
 
+
+
+  // Opens MyGeotab's Zones page filtered to the Impound zone type. Produces
+  // the same state as #zones,zoneTypes:!(<id>).
+  function viewZones() {
+    if (!pageState || typeof pageState.gotoPage !== 'function') {
+      toast('Needs to run inside MyGeotab'); return;
+    }
+    if (typeof pageState.hasAccessToPage === 'function' && !pageState.hasAccessToPage('zones')) {
+      toast('You do not have access to the Zones page'); return;
+    }
+    pageState.gotoPage('zones', zoneTypeId ? { zoneTypes: [zoneTypeId] } : {});
+  }
 
   // ---- Rule definition -------------------------------------------------
   // ZoneStop conditions reference individual zones (Condition has a `zone`
@@ -1414,6 +1438,7 @@
       }
     },
     openSetup: openSetup,
+    viewZones: viewZones,
     copyRule: function () { copyText(window.__IZM_RULE_JSON || '', 'Rule definition'); },
     recheck: function () { if (api) { loadLive().then(function () { closeSetup(); openSetup(); }); } },
     closeSetup: closeSetup,
