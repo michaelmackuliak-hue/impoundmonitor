@@ -492,6 +492,7 @@
 
   // ---- Configuration the add-in depends on -----------------------
   var CFG = {
+    BUILD: '2026-08-14 13:50',
     RULE_NAME: 'Impound Lot Detection',
     // The contract is the zone TYPE. Zone names are whatever the import wrote
     // (e.g. "Impound Lot - Westway Towing") and are only ever displayed, never
@@ -715,6 +716,11 @@
   }
 
   function loadLive() {
+    // Drop anything already on screen. Without this, a failed API call leaves
+    // the previous mode's rows showing while the badge says Live.
+    data.active = []; data.history = []; data.lots = 0;
+    checks = { zones: null, rule: null, events: null };
+    foundZones = []; foundRule = null;
     data.loading = true; data.error = null; renderAll();
 
     var from = new Date(Date.now() - windowDays * 86400000);
@@ -1524,6 +1530,7 @@
     if (mode === 'live' && api && data.lots) {
       sub += ' · ' + data.lots.toLocaleString() + ' impound lot' + (data.lots === 1 ? '' : 's') + ' monitored';
     }
+    sub += ' · build ' + CFG.BUILD;
     el('izm-subline').textContent = sub;
 
     // The severity filter and history window only apply to live/mock event data.
