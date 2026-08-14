@@ -1234,12 +1234,14 @@
     window.__IZM_RULE_JSON = json;
     return '<div style="margin-top:14px">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap">' +
-        '<strong style="font-size:13px">Rule definition, generated from your ' + foundZones.length + ' Impound zone' +
-          (foundZones.length === 1 ? '' : 's') + '</strong>' +
+        '<strong style="font-size:13px">Fallback: rule definition listing all ' + foundZones.length + ' zone' +
+          (foundZones.length === 1 ? '' : 's') + ' individually</strong>' +
         '<button type="button" class="zen-button" onclick="IZM.copyRule()">Copy JSON</button>' +
       '</div>' +
       '<pre class="izm-code">' + esc(preview) + '</pre>' +
-      '<div style="font-size:13px;margin-top:10px"><strong>To create it</strong> — save that JSON as <code>rule.json</code>, then:</div>' +
+      '<div style="font-size:12px;color:var(--text-secondary);margin:-4px 0 8px">Only needed if you would rather create the rule ' +
+      'through the API than the UI. Selecting the zone type in the rule builder is the better route — it keeps working as lots are added.</div>' +
+      '<div style="font-size:13px;margin-top:10px"><strong>To create it</strong> — save as <code>rule.json</code>, then:</div>' +
       '<pre class="izm-code">cli-mygeotab rule create --from-file rule.json</pre>' +
       '<div style="font-size:12px;color:var(--text-secondary)">The CLI asks you to confirm before it writes. ' +
       'Or build the same thing by hand in <strong>Rules &amp; Groups → Rules → Add rule</strong> using the table above.</div>' +
@@ -1308,20 +1310,18 @@
             '<div class="izm-step__num">2</div><div>' +
             '<div class="izm-step__title">Create the rule <code>' + esc(CFG.RULE_NAME) + '</code></div>' +
             '<div class="izm-step__body">' +
+            '<p style="margin:0 0 8px">Build it in <strong>Rules &amp; Groups → Rules → Add rule</strong>. ' +
+            'In the Zone dropdown, choose <strong>zone type</strong> rather than individual zones and pick ' +
+            '<code>' + esc(CFG.ZONE_TYPE_NAME) + '</code>. One condition then covers every lot, including any you import later.</p>' +
             '<table class="izm-spec"><tbody>' +
               '<tr><th>Name</th><td><code>' + esc(CFG.RULE_NAME) + '</code> — exact, this add-in looks it up by name</td></tr>' +
               '<tr><th>Type</th><td>Zone rule (exception rule)</td></tr>' +
-              '<tr><th>Condition</th><td><code>ZoneStop</code> on each Impound zone, joined by <code>Or</code></td></tr>' +
-              '<tr><th>AND</th><td><code>DurationLongerThan</code> = <code>43200</code> seconds (12 hours)</td></tr>' +
-              '<tr><th>Applies to</th><td>the vehicle groups you want covered (Company group covers everything)</td></tr>' +
+              '<tr><th>Zone</th><td>zone <strong>type</strong> = <code>' + esc(CFG.ZONE_TYPE_NAME) + '</code> (not individual zones)</td></tr>' +
+              '<tr><th>Condition</th><td>vehicle <strong>stopped</strong> in the zone (<code>ZoneStop</code>)</td></tr>' +
+              '<tr><th>AND</th><td>duration <strong>longer than 12 hours</strong> (<code>43200</code> seconds)</td></tr>' +
+              '<tr><th>Applies to</th><td>the vehicle groups you want covered (Company covers everything)</td></tr>' +
             '</tbody></table>' +
-            '<p style="margin:10px 0 4px">Twelve hours is what separates a genuine impound from a delivery stop.</p>' +
-            '<p style="margin:4px 0 0"><strong>Zones vs zone types.</strong> At the API level a <code>ZoneStop</code> condition ' +
-            'points at one specific zone — the <code>Condition</code> object has a <code>Zone</code> property but no ' +
-            '<code>ZoneType</code>. So the generated JSON below lists every impound zone individually.<br><br>' +
-            '<strong>Check the rule builder UI first.</strong> If <strong>Rules &amp; Groups → Rules → Add rule</strong> lets you ' +
-            'pick a zone <em>type</em>, use that — it is far cleaner and will keep working as lots are added. ' +
-            'The generated JSON is the fallback for when it does not.</p>' +
+            '<p style="margin:10px 0 0">Twelve hours is what separates a genuine impound from a delivery stop.</p>' +
             (connected ? ruleScriptBlock() :
               '<p style="margin:10px 0 0;color:var(--text-secondary)">Open this inside MyGeotab and this step will generate the ' +
               'rule definition for you from the zones actually in your database.</p>') +
