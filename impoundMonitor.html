@@ -203,6 +203,8 @@
 :is(#izm-root,.izm-modal-root) .zen-summary-tile__label{font-size:12px;line-height:16px;letter-spacing:.32px;color:var(--text-secondary)}
 :is(#izm-root,.izm-modal-root) .zen-summary-tile__value{font-size:24px;line-height:30px;font-weight:500;color:var(--text-primary);
   font-variant-numeric:tabular-nums;letter-spacing:-.2px}
+:is(#izm-root,.izm-modal-root) .izm-assetlink{color:var(--text-hyperlink);text-decoration:none;font-weight:500}
+:is(#izm-root,.izm-modal-root) .izm-assetlink:hover{text-decoration:underline}
 :is(#izm-root,.izm-modal-root) .izm-tilelink{color:var(--text-hyperlink);text-decoration:none;border-bottom:1px solid transparent}
 :is(#izm-root,.izm-modal-root) .izm-tilelink:hover{text-decoration:underline}
 :is(#izm-root,.izm-modal-root) .zen-summary-tile__hint{font-size:12px;line-height:16px;letter-spacing:.32px;color:var(--text-secondary)}
@@ -253,6 +255,9 @@
 :is(#izm-root,.izm-modal-root) .zen-field--inline{align-items:flex-start}
 :is(#izm-root,.izm-modal-root) .izm-sectionhead{font-size:20px;font-weight:400;line-height:24px;margin:4px 0 0;color:var(--text-primary)}
 :is(#izm-root,.izm-modal-root) .izm-body{flex:1;overflow-y:auto;padding:16px 24px 32px;display:flex;flex-direction:column;gap:16px}
+/* Empty placeholder slots still consume a gap each — collapse them. */
+:is(#izm-root,.izm-modal-root) .izm-body > div:empty{display:none}
+:is(#izm-root,.izm-modal-root) .izm-body > .izm-tiles:empty{display:none}
 :is(#izm-root,.izm-modal-root) .izm-toolbar{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
 :is(#izm-root,.izm-modal-root) .izm-spacer{flex:1}
 
@@ -539,7 +544,7 @@
 
   // ---- Configuration the add-in depends on -----------------------
   var CFG = {
-    BUILD: '2026-08-14 13:50',
+    BUILD: '2026-08-17 10:27',
     RULE_NAME: 'Impound Lot Detection',
     // The contract is the zone TYPE. Zone names are whatever the import wrote
     // (e.g. "Impound Lot - Westway Towing") and are only ever displayed, never
@@ -1122,6 +1127,15 @@
       'View asset on map</button>';
   }
 
+
+  function vehicleLink(r) {
+    var name = esc(r.vehicle || r.deviceId || 'Unknown');
+    if (!r.deviceId) return '<div class="izm-cell-primary">' + name + '</div>';
+    return '<div class="izm-cell-primary"><a href="#" class="izm-assetlink" ' +
+      'onclick="IZM.viewAsset(\'' + esc(r.deviceId) + '\');return false;" ' +
+      'aria-label="Open the asset page for ' + name + '">' + name + '</a></div>';
+  }
+
   function renderActive() {
     var slot = el('izm-active-slot');
     var card = slot.closest('.zen-card-container');
@@ -1210,12 +1224,12 @@
           '<div class="izm-month__body"><div class="izm-tablewrap"><table class="zen-table">' +
           '<thead><tr><th scope="col">Vehicle</th><th scope="col">Impound lot</th><th scope="col">Entered</th>' +
           '<th scope="col">Released</th><th scope="col">Held</th><th scope="col">Paid</th>' +
-          '<th scope="col">Recoverable</th><th scope="col">Picked up from</th><th scope="col">Action</th></tr></thead><tbody>' +
+          '<th scope="col">Recoverable</th><th scope="col">Picked up from</th></tr></thead><tbody>' +
           g.map(function (r) {
             var b = Math.max(1, Math.ceil(r.hours / 24));
             var save = Math.max(0, b - cap) * rate;
             return '<tr>' +
-              '<td><div class="izm-cell-primary">' + esc(r.vehicle) + '</div>' +
+              '<td>' + vehicleLink(r) +
                 (r.vin ? '<div class="izm-cell-sub zen-data">' + esc(r.vin) + '</div>' : '') +
                 (r.plate ? '<div class="izm-cell-sub"><span class="izm-plate">' + esc(r.plate) + '</span></div>' : '') + '</td>' +
               '<td><div class="izm-cell-primary">' +
@@ -1234,8 +1248,7 @@
               '<td>' + (r.startMaps
                 ? '<a href="' + esc(r.startMaps) + '" target="_blank" rel="noopener" style="color:var(--text-hyperlink)">' + esc(r.startGps) + '</a>' +
                   '<div class="izm-cell-sub">' + esc(r.startAddr) + '</div>'
-                : '<span class="zen-label">—</span>') + '</td>' +
-              '<td>' + mapAction(r) + '</td></tr>';
+                : '<span class="zen-label">—</span>') + '</td></tr>';
           }).join('') + '</tbody></table></div></div></div>';
       }).join('');
       el('izm-hist-count').textContent = rows.length + ' vehicle' + (rows.length === 1 ? '' : 's') +
@@ -1253,10 +1266,10 @@
         '<div class="izm-month__body"><div class="izm-tablewrap"><table class="zen-table">' +
         '<thead><tr><th scope="col">Vehicle</th><th scope="col">Plate</th><th scope="col">Impound lot</th>' +
         '<th scope="col">Entered</th><th scope="col">Released</th><th scope="col">Held</th>' +
-        '<th scope="col">Storage cost</th><th scope="col">Action</th></tr></thead><tbody>' +
+        '<th scope="col">Storage cost</th></tr></thead><tbody>' +
         g.map(function (r) {
           return '<tr>' +
-            '<td><div class="izm-cell-primary">' + esc(r.vehicle) + '</div>' +
+            '<td>' + vehicleLink(r) +
               (r.vin ? '<div class="izm-cell-sub zen-data">' + esc(r.vin) + '</div>' : '') + '</td>' +
             '<td>' + (r.plate ? '<span class="izm-plate">' + esc(r.plate) + '</span>' : '<span class="zen-label">—</span>') + '</td>' +
             '<td><div class="izm-cell-primary">' + esc(r.lot) + '</div>' +
@@ -1264,8 +1277,7 @@
             '<td style="white-space:nowrap">' + esc(fmtDate(r.start)) + '</td>' +
             '<td style="white-space:nowrap;color:var(--text-secondary)">' + esc(fmtDate(r.end)) + '</td>' +
             '<td><span class="izm-money">' + fmtDur(r.hours) + '</span></td>' +
-            '<td><span class="izm-money">' + money(storageCost(r.hours)) + '</span></td>' +
-            '<td>' + mapAction(r) + '</td></tr>';
+            '<td><span class="izm-money">' + money(storageCost(r.hours)) + '</span></td></tr>';
         }).join('') + '</tbody></table></div></div></div>';
     }).join('');
 
@@ -1335,6 +1347,19 @@
   function renderAll() { syncModeUI(); renderBanner(); renderHero(); renderTiles(); renderActive(); renderHistory(); renderHistoryStats(); }
 
 
+
+
+  // Opens the MyGeotab asset page for a device -> #device,id:<id>
+  function viewAsset(deviceId) {
+    if (!deviceId) return;
+    if (!pageState || typeof pageState.gotoPage !== 'function') {
+      toast('Would open the asset page for ' + deviceId); return;
+    }
+    if (typeof pageState.hasAccessToPage === 'function' && !pageState.hasAccessToPage('device')) {
+      toast('You do not have access to the asset page'); return;
+    }
+    pageState.gotoPage('device', { id: deviceId });
+  }
 
   // Opens MyGeotab's Zones page filtered to the Impound zone type. Produces
   // the same state as #zones,zoneTypes:!(<id>).
@@ -1606,6 +1631,7 @@
     },
     openSetup: openSetup,
     viewZones: viewZones,
+    viewAsset: viewAsset,
 
     // ---- Console helpers -------------------------------------------------
     // Usable from devtools when the in-app panel is awkward to read.
