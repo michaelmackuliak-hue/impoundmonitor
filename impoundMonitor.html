@@ -544,7 +544,7 @@
 
   // ---- Configuration the add-in depends on -----------------------
   var CFG = {
-    BUILD: '2026-08-17 10:27',
+    BUILD: '2026-08-17 11:23',
     RULE_NAME: 'Impound Lot Detection',
     // The contract is the zone TYPE. Zone names are whatever the import wrote
     // (e.g. "Impound Lot - Westway Towing") and are only ever displayed, never
@@ -554,7 +554,8 @@
     ZONE_NAME_FALLBACK: 'impound',
     DEFAULT_RATE: 45,               // USD per day
     LA_RATE: 68,
-    TARGET_DAYS: 2.5                // recovery target used by the savings model
+    TARGET_DAYS: 2.5,               // recovery target used by the savings model
+    THRESHOLD_HOURS: 6              // must match the duration in the rule
   };
 
   var api = null, pageState = null;
@@ -1415,7 +1416,7 @@
         '<div class="zen-banner__text" style="font-size:13px">No Impound zones found yet, so there is nothing to build a rule from. ' +
         'Do step 1 first, then reopen this panel.</div></div><div></div></div>';
     }
-    var hours = 12;
+    var hours = CFG.THRESHOLD_HOURS;
     var json = JSON.stringify(buildRuleJSON(foundZones, hours), null, 2);
     var preview = foundZones.length > 5
       ? JSON.stringify(buildRuleJSON(foundZones.slice(0, 3), hours), null, 2)
@@ -1527,15 +1528,18 @@
               '<tr><th>1</th><td><strong>Inside Area</strong> → choose <strong>zone type</strong> → ' +
                 '<code>' + esc(CFG.ZONE_TYPE_NAME) + '</code></td></tr>' +
               '<tr><th>2</th><td><strong>Device Stopped</strong></td></tr>' +
-              '<tr><th>3</th><td><strong>Duration</strong> → <strong>Longer than</strong> → <code>12 hours</code></td></tr>' +
+              '<tr><th>3</th><td><strong>Duration</strong> → <strong>Longer than</strong> → <code>' + CFG.THRESHOLD_HOURS + ' hours</code>, wrapping the AND group (not a third sibling)</td></tr>' +
             '</tbody></table>' +
-            '<p style="margin:8px 0 0;font-size:13px">Reads as <em>“vehicle stopped inside an Impound zone for more than 12 hours”</em>. ' +
+            '<p style="margin:8px 0 0;font-size:13px">Reads as <em>“vehicle stopped inside an Impound zone for more than ' + CFG.THRESHOLD_HOURS + ' hours”</em>. ' +
             'The order does not change how it evaluates — an AND group is all-or-nothing — but this order is the clearest to read back.</p>' +
+            '<p style="margin:8px 0 0;font-size:13px"><strong>Duration wraps the pair.</strong> The tree should read ' +
+            '<code>DurationLongerThan(And(InsideArea, Stop))</code> — the duration measures how long the combined state held. ' +
+            'If it sits as a third sibling inside the AND, a stop that began elsewhere can satisfy it.</p>' +
             '<p style="margin:8px 0 0;font-size:13px"><strong>Check the joins are AND, not OR.</strong> With OR you would get an event ' +
             'for every vehicle merely inside a lot, and every vehicle stopped anywhere.</p>' +
             '<p style="margin:8px 0 0;font-size:13px"><strong>Applies to:</strong> Company Group for everything, or pick specific vehicle groups.</p>' +
-            '<p style="margin:10px 0 0;font-size:13px;color:var(--text-secondary)">Twelve hours is what separates a genuine impound ' +
-            'from a delivery stop, and it matches the threshold the cost model assumes.</p>' +
+            '<p style="margin:10px 0 0;font-size:13px;color:var(--text-secondary)">The threshold is what separates a genuine impound ' +
+            'from a long delivery stop. Lower catches more but admits more false positives; storage still bills a full day either way.</p>' +
             (connected ? ruleScriptBlock() : '') +
             '</div>' +
           '</div></div>' +
@@ -1651,16 +1655,16 @@
     },
     ruleJSON: function (hours) {
       if (!foundZones.length) { console.warn('No Impound zones found — run IZM.status() first.'); return null; }
-      var j = JSON.stringify(buildRuleJSON(foundZones, hours || 12), null, 2);
+      var j = JSON.stringify(buildRuleJSON(foundZones, hours || CFG.THRESHOLD_HOURS), null, 2);
       console.log(j); copyText(j, 'Rule definition'); return j;
     },
     createRule: function (hours) {
       if (!api) { console.warn('Not connected to a database.'); return; }
       if (foundRule) { console.warn('Rule already exists: ' + foundRule.id); return; }
       if (!foundZones.length) { console.warn('No Impound zones found — nothing to build a rule from.'); return; }
-      var def = buildRuleJSON(foundZones, hours || 12);
+      var def = buildRuleJSON(foundZones, hours || CFG.THRESHOLD_HOURS);
       if (!window.confirm('Create the rule "' + CFG.RULE_NAME + '" covering ' +
-          foundZones.length + ' zone(s) with a ' + (hours || 12) + ' hour threshold?')) return;
+          foundZones.length + ' zone(s) with a ' + (hours || CFG.THRESHOLD_HOURS) + ' hour threshold?')) return;
       return call('Add', { typeName: 'Rule', entity: def }).then(function (id) {
         console.log('Rule created:', id); toast('Rule created'); return loadLive();
       }, function (err) { console.error('Rule creation failed:', err); toast('Rule creation failed — see console'); });
