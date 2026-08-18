@@ -242,11 +242,23 @@
 :is(#izm-root,.izm-modal-root) .izm-chip--success{background:var(--accents-success--main);color:var(--accents-success--detail)}
 
 /* ---------- Layout ---------- */
+/* Grid, not flex-wrap. The subline grows with the rule name, lot count and
+   build stamp, and once it got long enough the actions block wrapped onto its
+   own line and sat left. A 1fr/auto grid keeps the title flexible and pins the
+   actions right regardless of how long the text gets. */
 :is(#izm-root,.izm-modal-root) .izm-header{
-  display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;
+  display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;
+  column-gap:24px;row-gap:12px;container-type:inline-size;
   padding:16px 24px;background:var(--backgrounds-main);border-bottom:1px solid var(--borders-general);flex:none;
 }
-:is(#izm-root,.izm-modal-root) .izm-header__meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px}
+@container (max-width:900px){
+  :is(#izm-root,.izm-modal-root) .izm-header{grid-template-columns:minmax(0,1fr)}
+  :is(#izm-root,.izm-modal-root) .izm-header__actions{align-items:flex-start}
+  :is(#izm-root,.izm-modal-root) .izm-headerbuttons,
+  :is(#izm-root,.izm-modal-root) .izm-headercontrols{justify-content:flex-start}
+}
+:is(#izm-root,.izm-modal-root) .izm-header__meta{display:flex;align-items:center;gap:4px 8px;flex-wrap:wrap;margin-top:4px;min-width:0}
+:is(#izm-root,.izm-modal-root) .izm-header__meta #izm-subline{min-width:0}
 :is(#izm-root,.izm-modal-root) .izm-header__actions{display:flex;flex-direction:column;gap:10px;align-items:flex-end;flex-wrap:wrap}
 :is(#izm-root,.izm-modal-root) .izm-header__actions > .zen-button,
 :is(#izm-root,.izm-modal-root) .izm-header__actions > .izm-modeswitch{align-self:auto}
@@ -544,7 +556,7 @@
 
   // ---- Configuration the add-in depends on -----------------------
   var CFG = {
-    BUILD: '2026-08-18 08:57',
+    BUILD: '2026-08-18 10:57',
     RULE_NAME: 'Impound Lot Detection',
     // The contract is the zone TYPE. Zone names are whatever the import wrote
     // (e.g. "Impound Lot - Westway Towing") and are only ever displayed, never
