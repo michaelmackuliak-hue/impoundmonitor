@@ -544,7 +544,7 @@
 
   // ---- Configuration the add-in depends on -----------------------
   var CFG = {
-    BUILD: '2026-08-17 11:23',
+    BUILD: '2026-08-18 08:57',
     RULE_NAME: 'Impound Lot Detection',
     // The contract is the zone TYPE. Zone names are whatever the import wrote
     // (e.g. "Impound Lot - Westway Towing") and are only ever displayed, never
@@ -570,6 +570,7 @@
   var zoneTypeSeen = null;    // true/false once we have looked for the zone type
   var zoneTypeId = null;      // id of the Impound ZoneType, for deep-linking
   var booted = false;         // true once boot() has run, from either entry point
+  var focusDevice = null;     // device id passed in the URL, e.g. from a notification email
 
   // ---------------- helpers ----------------
   var esc = function (s) {
@@ -1004,43 +1005,67 @@
   var ICON_INFO = '<path d="M10 1a9 9 0 100 18 9 9 0 000-18Zm1 13H9V9h2v5Zm0-7H9V5h2v2Z"/>';
   var ICON_ERR  = '<path d="M10 1a9 9 0 100 18 9 9 0 000-18Zm1 13H9v-2h2v2Zm0-4H9V5h2v5Z"/>';
 
+
+  // A notification email can deep-link straight to one vehicle:
+  //   #addin-impound_monitor-impoundMonitor,device:b1A2F
+  function readDeepLink() {
+    if (!pageState || typeof pageState.getState !== 'function') return;
+    var st = null;
+    try { st = pageState.getState(); } catch (e) { return; }
+    if (!st) return;
+    var d = st.device || st.deviceId || st.vehicle || null;
+    focusDevice = d ? String(d) : null;
+  }
+  function focusMatch(r) {
+    return !focusDevice || r.deviceId === focusDevice;
+  }
+  function focusBanner() {
+    if (!focusDevice) return '';
+    var hit = data.active.concat(data.history).filter(focusMatch)[0];
+    var who = hit ? hit.vehicle : focusDevice;
+    return bannerHTML('info', ICON_INFO,
+      '<strong>Showing one vehicle.</strong> Opened from a link for <strong>' + esc(who) + '</strong>. ' +
+      (hit ? '' : 'No impound record found for it in this window. '),
+      '<button type="button" class="zen-button" onclick="IZM.clearFocus()">Show all vehicles</button>');
+  }
+
   function renderBanner() {
     var slot = el('izm-banner-slot');
-    var html = '';
+    var html = focusBanner();
 
     if (mode === 'enterprise') {
-      html = bannerHTML('info', ICON_INFO,
+      html += bannerHTML('info', ICON_INFO,
         '<strong>Historical analysis, not live data.</strong> 80 confirmed tows from <code>a customer database</code>, ' +
         '1 June – 31 July 2025, detected within 30 m of a known towing lot with a 12 hour minimum dwell. ' +
         'These are closed events — nothing here is still impounded.',
         '');
     } else if (mode === 'mock') {
-      html = bannerHTML('info', ICON_INFO,
+      html += bannerHTML('info', ICON_INFO,
         '<strong>Mock data.</strong> Everything below is a sample dataset, not your database. ' +
         'Switch to <em>Live database</em> to read real events from the <code>' + esc(CFG.RULE_NAME) + '</code> rule.',
         '<button type="button" class="zen-button" onclick="IZM.openSetup()">What do I need?</button>');
     } else if (!api) {
-      html = bannerHTML('warning', ICON_WARN,
+      html += bannerHTML('warning', ICON_WARN,
         '<strong>No database connection.</strong> This page is running outside MyGeotab, so live mode has nothing to read. ' +
         'Install it as an add-in and reopen it from the MyGeotab menu.',
         '<button type="button" class="zen-button" onclick="IZM.setMode(\'mock\')">Back to mock data</button>');
     } else if (data.error) {
-      html = bannerHTML('error', ICON_ERR,
+      html += bannerHTML('error', ICON_ERR,
         '<strong>Could not load events.</strong> ' + esc(data.error),
         '<button type="button" class="zen-button" onclick="IZM.refresh()">Try again</button>');
     } else if (checks.rule && !checks.rule.ok) {
-      html = bannerHTML('warning', ICON_WARN,
+      html += bannerHTML('warning', ICON_WARN,
         '<strong>Setup incomplete.</strong> No rule named <code>' + esc(CFG.RULE_NAME) + '</code> exists in this database, ' +
         'so there are no events to show.',
         '<button type="button" class="zen-button zen-button--primary" onclick="IZM.openSetup()">Show me how</button>');
     } else if (zoneFallback) {
-      html = bannerHTML('warning', ICON_WARN,
+      html += bannerHTML('warning', ICON_WARN,
         '<strong>Zone type <code>' + esc(CFG.ZONE_TYPE_NAME) + '</code> does not exist.</strong> ' +
         'Falling back to matching zone names, which is unreliable — any zone with "impound" in its name is being counted. ' +
         'Create the zone type and tag the lots with it.',
         '<button type="button" class="zen-button zen-button--primary" onclick="IZM.openSetup()">Show me how</button>');
     } else if (checks.zones && !checks.zones.ok) {
-      html = bannerHTML('warning', ICON_WARN,
+      html += bannerHTML('warning', ICON_WARN,
         '<strong>No impound zones found.</strong> Import the lots as zones and tag them with the zone type <code>' +
         esc(CFG.ZONE_TYPE_NAME) + '</code>.',
         '<button type="button" class="zen-button zen-button--primary" onclick="IZM.openSetup()">Show me how</button>');
@@ -1145,7 +1170,7 @@
     if (data.loading) { slot.innerHTML = skeleton(5); el('izm-active-count').textContent = ''; return; }
 
     var filter = el('izm-sev').value;
-    var rows = data.active.filter(function (r) { return filter === 'all' || sev(r.hours) === filter; });
+    var rows = data.active.filter(focusMatch).filter(function (r) { return filter === 'all' || sev(r.hours) === filter; });
 
     el('izm-active-sub').textContent = data.active.length
       ? data.active.length + ' vehicle' + (data.active.length === 1 ? '' : 's') + ' sitting in an impound zone right now'
@@ -1190,7 +1215,7 @@
     if (data.loading) { slot.innerHTML = skeleton(4); el('izm-hist-count').textContent = ''; return; }
 
     var q = (el('izm-search').value || '').trim().toLowerCase();
-    var rows = data.history.filter(function (r) {
+    var rows = data.history.filter(focusMatch).filter(function (r) {
       if (!q) return true;
       return (r.vehicle + ' ' + r.plate + ' ' + r.lot + ' ' + r.vin).toLowerCase().indexOf(q) !== -1;
     });
@@ -1633,6 +1658,7 @@
         toast('Would open the map at device ' + deviceId + ' (needs to run inside MyGeotab)');
       }
     },
+    clearFocus: function () { focusDevice = null; renderAll(); },
     openSetup: openSetup,
     viewZones: viewZones,
     viewAsset: viewAsset,
@@ -1735,6 +1761,7 @@
     booted = true;
     api = _api || null;
     pageState = _state || null;
+    readDeepLink();
     el('izm-rate').value = CFG.DEFAULT_RATE;
     rate = CFG.DEFAULT_RATE;
     // Live where we can, mock where we cannot.
@@ -1749,7 +1776,7 @@
   global.geotab.addin.impoundMonitor = function (api, state) {
     return {
       initialize: function (api, state, callback) { boot(api, state); callback(); },
-      focus: function (a, st) { if (st) pageState = st; if (mode === 'live' && api) loadLive(); },
+      focus: function (a, st) { if (st) pageState = st; readDeepLink(); if (mode === 'live' && api) loadLive(); else renderAll(); },
       blur: function () { closeSetup(); }
     };
   };
