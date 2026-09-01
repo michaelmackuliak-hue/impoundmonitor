@@ -556,7 +556,7 @@
 
   // ---- Configuration the add-in depends on -----------------------
   var CFG = {
-    BUILD: '2026-08-18 10:57',
+    BUILD: '2026-09-01 17:00',
     RULE_NAME: 'Impound Lot Detection',
     // The contract is the zone TYPE. Zone names are whatever the import wrote
     // (e.g. "Impound Lot - Westway Towing") and are only ever displayed, never
@@ -781,6 +781,25 @@
     return next();
   }
 
+  // A plain Get on Zone silently caps out on large databases well below its
+  // resultsLimit (payload-size cap, not honored against the requested limit)
+  // — a 37k-zone database came back as ~10k. GetFeed supports Zone (search
+  // unsupported, 10,000/page max) and pages properly, so use it instead.
+  function getAllZones() {
+    var all = [];
+    function next(fromVersion) {
+      var params = { typeName: 'Zone', resultsLimit: 10000 };
+      if (fromVersion) params.fromVersion = fromVersion;
+      return call('GetFeed', params).then(function (res) {
+        var batch = (res && res.data) || [];
+        all = all.concat(batch);
+        if (batch.length > 0 && res.toVersion) return next(res.toVersion);
+        return all;
+      });
+    }
+    return next(null);
+  }
+
   function loadLive() {
     // Drop anything already on screen. Without this, a failed API call leaves
     // the previous mode's rows showing while the badge says Live.
@@ -808,7 +827,7 @@
         zoneType = (types || []).filter(function (t) {
           return (t.name || '').trim().toLowerCase() === CFG.ZONE_TYPE_NAME.toLowerCase();
         })[0] || null;
-        return call('Get', { typeName: 'Zone', resultsLimit: 60000 });
+        return getAllZones();
       })
       .then(function (allZones) {
         allZones = allZones || [];
