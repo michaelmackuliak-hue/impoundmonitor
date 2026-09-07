@@ -556,7 +556,7 @@
 
   // ---- Configuration the add-in depends on -----------------------
   var CFG = {
-    BUILD: '2026-09-02 09:45',
+    BUILD: '2026-09-07 07:40',
     RULE_NAME: 'Impound Lot Detection',
     // The contract is the zone TYPE. Zone names are whatever the import wrote
     // (e.g. "Impound Lot - Westway Towing") and are only ever displayed, never
@@ -583,6 +583,7 @@
   var zoneTypeId = null;      // id of the Impound ZoneType, for deep-linking
   var booted = false;         // true once boot() has run, from either entry point
   var focusDevice = null;     // device id passed in the URL, e.g. from a notification email
+  var lastRawEvents = [];     // last ExceptionEvent fetch, unshaped, for IZM.debugEvents()
 
   // ---------------- helpers ----------------
   var esc = function (s) {
@@ -862,6 +863,7 @@
       })
       .then(function (events) {
         events = events || [];
+        lastRawEvents = events;
         checks.events = { ok: events.length > 0, detail: events.length + ' event' + (events.length === 1 ? '' : 's') + ' in window' };
         if (!events.length) { data.active = []; data.history = []; return null; }
 
@@ -1429,26 +1431,30 @@
   }
 
   // ---- Rule definition -------------------------------------------------
-  // ZoneStop conditions reference individual zones (Condition has a `zone`
-  // property, not a zone type), so the rule enumerates every impound zone
-  // under an Or. Duration is a sibling DurationLongerThan in seconds.
-  function buildRuleJSON(zones, hours) {
-    var zoneNodes = (zones || []).map(function (z) {
-      return { conditionType: { id: 'ZoneStop' }, zone: { id: z.id } };
-    });
+  // A Condition can carry ONE filtering entity (Device, Zone, or ZoneType,
+  // among others) — InsideArea + zoneType covers every zone of that type in
+  // a single node, so this scales to any number of lots and keeps working
+  // as lots are added or removed. This matches the corrected advanced-editor
+  // syntax: DurationLongerThan[time=Nh](InsideArea[zoneType=<id>]).
+  //
+  // Do NOT add a Stop/ZoneStop condition here. Stop only finalizes once the
+  // device starts a new trip, so "InsideArea AND Stop" only evaluates true
+  // after the vehicle has already left the lot — the exact bug this add-in
+  // exists to avoid. DurationLongerThan wrapping InsideArea alone tracks
+  // live dwell time and fires while the vehicle is still parked.
+  function buildRuleJSON(zoneTypeIdArg, hours) {
     return {
       name: CFG.RULE_NAME,
       baseType: 'Zone',
-      comment: 'Fires when a vehicle stops inside an Impound zone for ' + hours + ' hours or more.',
+      comment: 'Fires when a vehicle has been inside an Impound zone for ' + hours + ' hours or more.',
       activeFrom: '1986-01-01T00:00:00.000Z',
       activeTo: '2050-01-01T00:00:00.000Z',
       groups: [{ id: 'GroupCompanyId' }],
       condition: {
-        conditionType: { id: 'And' },
+        conditionType: { id: 'DurationLongerThan' },
+        value: hours * 3600,
         children: [
-          zoneNodes.length === 1 ? zoneNodes[0]
-            : { conditionType: { id: 'Or' }, children: zoneNodes },
-          { conditionType: { id: 'DurationLongerThan' }, value: hours * 3600 }
+          { conditionType: { id: 'InsideArea' }, zoneType: { id: zoneTypeIdArg } }
         ]
       }
     };
@@ -1463,33 +1469,29 @@
 
 
   function ruleScriptBlock() {
-    if (!foundZones.length) {
+    if (!zoneTypeId) {
       return '<div class="zen-banner zen-banner--warning" style="margin-top:12px">' +
         '<div class="zen-banner__content">' +
         '<svg class="zen-banner__icon" viewBox="0 0 20 20" aria-hidden="true">' + ICON_WARN + '</svg>' +
-        '<div class="zen-banner__text" style="font-size:13px">No Impound zones found yet, so there is nothing to build a rule from. ' +
+        '<div class="zen-banner__text" style="font-size:13px">No <code>' + esc(CFG.ZONE_TYPE_NAME) + '</code> zone type found yet, so there is nothing to build a rule from. ' +
         'Do step 1 first, then reopen this panel.</div></div><div></div></div>';
     }
     var hours = CFG.THRESHOLD_HOURS;
-    var json = JSON.stringify(buildRuleJSON(foundZones, hours), null, 2);
-    var preview = foundZones.length > 5
-      ? JSON.stringify(buildRuleJSON(foundZones.slice(0, 3), hours), null, 2)
-          .replace(/\n\s*\]\n\s*\},/, '\n        ... and ' + (foundZones.length - 3) + ' more zones\n      ]\n    },')
-      : json;
+    var json = JSON.stringify(buildRuleJSON(zoneTypeId, hours), null, 2);
     window.__IZM_RULE_JSON = json;
     return '<div style="margin-top:14px">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap">' +
-        '<strong style="font-size:13px">Fallback: rule definition listing all ' + foundZones.length + ' zone' +
-          (foundZones.length === 1 ? '' : 's') + ' individually</strong>' +
+        '<strong style="font-size:13px">Rule definition — covers every zone tagged "' + esc(CFG.ZONE_TYPE_NAME) + '"</strong>' +
         '<button type="button" class="zen-button" onclick="IZM.copyRule()">Copy JSON</button>' +
       '</div>' +
-      '<pre class="izm-code">' + esc(preview) + '</pre>' +
-      '<div style="font-size:12px;color:var(--text-secondary);margin:-4px 0 8px">Only needed if you would rather create the rule ' +
-      'through the API than the UI. Selecting the zone type in the rule builder is the better route — it keeps working as lots are added.</div>' +
+      '<pre class="izm-code">' + esc(json) + '</pre>' +
+      '<div style="font-size:12px;color:var(--text-secondary);margin:-4px 0 8px">Filters by zone type, not by individual zone, so it keeps working as lots ' +
+      'are added or removed — no rule edit needed. Uses <code>DurationLongerThan</code> wrapping <code>InsideArea</code> only; adding a ' +
+      '<code>Stop</code> condition makes the rule fire only after the vehicle leaves the lot, which is the bug this add-in exists to avoid.</div>' +
       '<div style="font-size:13px;margin-top:10px"><strong>To create it</strong> — save as <code>rule.json</code>, then:</div>' +
       '<pre class="izm-code">cli-mygeotab rule create --from-file rule.json</pre>' +
       '<div style="font-size:12px;color:var(--text-secondary)">The CLI asks you to confirm before it writes. ' +
-      'Or build the same thing by hand in <strong>Rules &amp; Groups → Rules → Add rule</strong> using the table above.</div>' +
+      'Or build the same thing by hand in <strong>Rules &amp; Groups → Rules → Add rule</strong> using the advanced editor — see the syntax above.</div>' +
       '</div>';
   }
 
@@ -1577,20 +1579,19 @@
             '<p style="margin:6px 0 12px;font-size:12px;color:var(--text-secondary)">Copy it rather than typing. ' +
             'The add-in finds the rule by name, so a trailing space or different capitalisation will break the link.</p>' +
 
-            '<div style="font-weight:500;margin-bottom:6px">Conditions — add all three, joined with AND</div>' +
+            '<div style="font-weight:500;margin-bottom:6px">Condition — just one, do not add "Device Stopped"</div>' +
             '<table class="izm-spec izm-spec--num"><tbody>' +
               '<tr><th>1</th><td><strong>Inside Area</strong> → choose <strong>zone type</strong> → ' +
                 '<code>' + esc(CFG.ZONE_TYPE_NAME) + '</code></td></tr>' +
-              '<tr><th>2</th><td><strong>Device Stopped</strong></td></tr>' +
-              '<tr><th>3</th><td><strong>Duration</strong> → <strong>Longer than</strong> → <code>' + CFG.THRESHOLD_HOURS + ' hours</code>, wrapping the AND group (not a third sibling)</td></tr>' +
+              '<tr><th>2</th><td><strong>Duration</strong> → <strong>Longer than</strong> → <code>' + CFG.THRESHOLD_HOURS + ' hours</code>, wrapping the Inside Area condition directly</td></tr>' +
             '</tbody></table>' +
-            '<p style="margin:8px 0 0;font-size:13px">Reads as <em>“vehicle stopped inside an Impound zone for more than ' + CFG.THRESHOLD_HOURS + ' hours”</em>. ' +
-            'The order does not change how it evaluates — an AND group is all-or-nothing — but this order is the clearest to read back.</p>' +
-            '<p style="margin:8px 0 0;font-size:13px"><strong>Duration wraps the pair.</strong> The tree should read ' +
-            '<code>DurationLongerThan(And(InsideArea, Stop))</code> — the duration measures how long the combined state held. ' +
-            'If it sits as a third sibling inside the AND, a stop that began elsewhere can satisfy it.</p>' +
-            '<p style="margin:8px 0 0;font-size:13px"><strong>Check the joins are AND, not OR.</strong> With OR you would get an event ' +
-            'for every vehicle merely inside a lot, and every vehicle stopped anywhere.</p>' +
+            '<p style="margin:8px 0 0;font-size:13px">Reads as <em>“vehicle has been inside an Impound zone for more than ' + CFG.THRESHOLD_HOURS + ' hours”</em>. ' +
+            'In the advanced editor this is <code>DurationLongerThan[time=' + CFG.THRESHOLD_HOURS + 'h](InsideArea[zoneType=&lt;id&gt;])</code>.</p>' +
+            '<p style="margin:8px 0 0;font-size:13px"><strong>Do not add a "Device Stopped" condition.</strong> ' +
+            'A Stop only finalizes once the device starts a new trip — so <code>And(InsideArea, Stop)</code> only becomes true ' +
+            'after the vehicle has already left the lot, and the event fires late, on exit, instead of while it is still parked. ' +
+            'If your rule already has this shape, edit it in the advanced editor and remove the Stop condition and the surrounding And, ' +
+            'leaving Duration wrapping Inside Area directly.</p>' +
             '<p style="margin:8px 0 0;font-size:13px"><strong>Applies to:</strong> Company Group for everything, or pick specific vehicle groups.</p>' +
             '<p style="margin:10px 0 0;font-size:13px;color:var(--text-secondary)">The threshold is what separates a genuine impound ' +
             'from a long delivery stop. Lower catches more but admits more false positives; storage still bills a full day either way.</p>' +
@@ -1697,6 +1698,7 @@
     //   IZM.status()      what the database currently has
     //   IZM.ruleJSON()    prints the rule definition and copies it
     //   IZM.createRule()  creates the rule directly (asks first)
+    //   IZM.debugEvents() raw ExceptionEvent JSON from the last refresh
     status: function () {
       var out = {
         build: CFG.BUILD, mode: mode, connected: !!api,
@@ -1709,21 +1711,22 @@
       console.table(out); return out;
     },
     ruleJSON: function (hours) {
-      if (!foundZones.length) { console.warn('No Impound zones found — run IZM.status() first.'); return null; }
-      var j = JSON.stringify(buildRuleJSON(foundZones, hours || CFG.THRESHOLD_HOURS), null, 2);
+      if (!zoneTypeId) { console.warn('No "' + CFG.ZONE_TYPE_NAME + '" zone type found — run IZM.status() first.'); return null; }
+      var j = JSON.stringify(buildRuleJSON(zoneTypeId, hours || CFG.THRESHOLD_HOURS), null, 2);
       console.log(j); copyText(j, 'Rule definition'); return j;
     },
     createRule: function (hours) {
       if (!api) { console.warn('Not connected to a database.'); return; }
       if (foundRule) { console.warn('Rule already exists: ' + foundRule.id); return; }
-      if (!foundZones.length) { console.warn('No Impound zones found — nothing to build a rule from.'); return; }
-      var def = buildRuleJSON(foundZones, hours || CFG.THRESHOLD_HOURS);
-      if (!window.confirm('Create the rule "' + CFG.RULE_NAME + '" covering ' +
-          foundZones.length + ' zone(s) with a ' + (hours || CFG.THRESHOLD_HOURS) + ' hour threshold?')) return;
+      if (!zoneTypeId) { console.warn('No "' + CFG.ZONE_TYPE_NAME + '" zone type found — nothing to build a rule from.'); return; }
+      var def = buildRuleJSON(zoneTypeId, hours || CFG.THRESHOLD_HOURS);
+      if (!window.confirm('Create the rule "' + CFG.RULE_NAME + '" covering every zone tagged "' +
+          CFG.ZONE_TYPE_NAME + '" with a ' + (hours || CFG.THRESHOLD_HOURS) + ' hour threshold?')) return;
       return call('Add', { typeName: 'Rule', entity: def }).then(function (id) {
         console.log('Rule created:', id); toast('Rule created'); return loadLive();
       }, function (err) { console.error('Rule creation failed:', err); toast('Rule creation failed — see console'); });
     },
+    debugEvents: function () { console.log(JSON.stringify(lastRawEvents, null, 2)); return lastRawEvents; },
     copyName: function () { copyText(CFG.RULE_NAME, 'Rule name'); },
     copyRule: function () { copyText(window.__IZM_RULE_JSON || '', 'Rule definition'); },
     recheck: function () { if (api) { loadLive().then(function () { closeSetup(); openSetup(); }); } },
