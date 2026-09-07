@@ -556,7 +556,7 @@
 
   // ---- Configuration the add-in depends on -----------------------
   var CFG = {
-    BUILD: '2026-09-07 07:40',
+    BUILD: '2026-09-08 00:05',
     RULE_NAME: 'Impound Lot Detection',
     // The contract is the zone TYPE. Zone names are whatever the import wrote
     // (e.g. "Impound Lot - Westway Towing") and are only ever displayed, never
@@ -871,12 +871,32 @@
         events.forEach(function (e) { if (e.device && e.device.id) deviceIds[e.device.id] = 1; });
         var ids = Object.keys(deviceIds);
 
+        // ExceptionEvent has no "still open" sentinel — activeTo keeps getting
+        // pushed forward while the exception is ongoing (confirmed against
+        // live data: a currently-impounded vehicle's activeTo/lastModifiedDateTime
+        // trail "now" by roughly one recalculation cycle, then simply stop moving
+        // once the vehicle leaves). So an event is open only if it's the LATEST
+        // event for its device AND its activeTo hasn't gone stale yet.
+        var OPEN_STALE_MS = 4 * 3600 * 1000; // generous vs the ~40min recalc lag observed
+        var latestByDevice = {};
+        events.forEach(function (e) {
+          var devId = e.device && e.device.id;
+          if (!devId) return;
+          var cur = latestByDevice[devId];
+          if (!cur || new Date(e.activeFrom) > new Date(cur.activeFrom)) latestByDevice[devId] = e;
+        });
+        function isOpen(e) {
+          var devId = e.device && e.device.id;
+          if (!devId || latestByDevice[devId] !== e) return false;
+          if (!e.activeTo) return true;
+          return (Date.now() - new Date(e.activeTo).getTime()) < OPEN_STALE_MS;
+        }
+
         // Only the devices in this event set. Pulling the whole fleet to label a
         // handful of events is pointless on a database with 200k vehicles.
         var openIds = {};
         events.forEach(function (e) {
-          var open = !e.activeTo || new Date(e.activeTo).getFullYear() > 2500;
-          if (open && e.device && e.device.id) openIds[e.device.id] = 1;
+          if (isOpen(e) && e.device && e.device.id) openIds[e.device.id] = 1;
         });
         var openList = Object.keys(openIds);
 
@@ -945,7 +965,7 @@
           events.forEach(function (e) {
             var dev = devById[e.device && e.device.id] || {};
             var start = new Date(e.activeFrom);
-            var open = !e.activeTo || new Date(e.activeTo).getFullYear() > 2500;
+            var open = isOpen(e);
             var end = open ? null : new Date(e.activeTo);
             var hours = ((open ? Date.now() : end.getTime()) - start.getTime()) / 3600000;
             var lot = open ? lotFor(e.device.id) : null;
