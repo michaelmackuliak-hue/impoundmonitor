@@ -556,7 +556,7 @@
 
   // ---- Configuration the add-in depends on -----------------------
   var CFG = {
-    BUILD: '2026-09-08 09:40',
+    BUILD: '2026-09-08 10:20',
     RULE_NAME: 'Impound Lot Detection',
     // The contract is the zone TYPE. Zone names are whatever the import wrote
     // (e.g. "Impound Lot - Westway Towing") and are only ever displayed, never
@@ -589,6 +589,8 @@
   var lastZoneError = null;   // last zone-resolution error, if any
   var isImpoundZoneRef = null; // set each refresh, so IZM.debugZones() can call it
   var lastTriggerInfo = [];   // per closed event: where it fired, for IZM.debugTrigger()
+  var lastOpenInfo = [];      // per open event: the open/closed decision, for IZM.debugOpen()
+  var openTriggerPointsRef = []; // trigger positions for open events, for IZM.debugOpen()
 
   // ---------------- helpers ----------------
   var esc = function (s) {
@@ -1036,6 +1038,7 @@
                 });
                 return best ? { lat: best.latitude, lng: best.longitude } : null;
               });
+              openTriggerPointsRef = openTriggerPoints;
               return Promise.all([
                 resolveZonesForPoints(openPoints),
                 resolveZonesForPoints(openTriggerPoints)
@@ -1043,9 +1046,24 @@
             }).then(function (both) {
             var lots = both[0], triggerLots = both[1];
             var stillOpen = [];
+            lastOpenInfo = [];
             act.forEach(function (r, i) {
               var here = lots[i];          // zone the vehicle is in right now
               var fired = triggerLots[i];  // zone the event fired in
+              lastOpenInfo.push({
+                vehicle: r.vehicle,
+                firedAt: r.start.toISOString(),
+                activeTo: r.eventEnd,
+                activeToAgeMin: r.eventEnd
+                  ? Math.round((Date.now() - new Date(r.eventEnd).getTime()) / 60000) : null,
+                currentPosition: openPoints[i],
+                currentZone: here ? { id: here.id, name: here.name } : null,
+                firedPosition: openTriggerPointsRef[i],
+                firedZone: fired ? { id: fired.id, name: fired.name } : null,
+                decision: (here && fired && here.id !== fired.id) ? 'departed -> released'
+                        : (fired && !here && openPoints[i]) ? 'left all zones -> released'
+                        : 'kept open'
+              });
               // Left the zone it was impounded in? Then it has been released,
               // whatever the event timestamps say. Only demote when we actually
               // know both ends — an unknown position must not close an event.
@@ -1848,6 +1866,10 @@
       }, function (err) { console.error('Rule creation failed:', err); toast('Rule creation failed — see console'); });
     },
     debugEvents: function () { console.log(JSON.stringify(lastRawEvents, null, 2)); return lastRawEvents; },
+    debugOpen: function () {
+      console.log(JSON.stringify(lastOpenInfo, null, 2));
+      return lastOpenInfo;
+    },
     debugTrigger: function (match) {
       var rows = lastTriggerInfo.filter(function (t) {
         if (!match) return true;
