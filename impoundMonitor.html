@@ -556,7 +556,7 @@
 
   // ---- Configuration the add-in depends on -----------------------
   var CFG = {
-    BUILD: '2026-09-08 03:05',
+    BUILD: '2026-09-08 09:40',
     RULE_NAME: 'Impound Lot Detection',
     // The contract is the zone TYPE. Zone names are whatever the import wrote
     // (e.g. "Impound Lot - Westway Towing") and are only ever displayed, never
@@ -867,7 +867,11 @@
         // trail "now" by roughly one recalculation cycle, then simply stop moving
         // once the vehicle leaves). So an event is open only if it's the LATEST
         // event for its device AND its activeTo hasn't gone stale yet.
-        var OPEN_STALE_MS = 4 * 3600 * 1000; // generous vs the ~40min recalc lag observed
+        // 4h was far too generous: a vehicle that drove away this morning kept
+        // showing as impounded for the rest of the morning. The observed recalc
+        // lag is ~40 min, so 90 min is enough slack without holding a departed
+        // vehicle on the list. Openness is confirmed against live position below.
+        var OPEN_STALE_MS = 90 * 60 * 1000;
         var latestByDevice = {};
         events.forEach(function (e) {
           var devId = e.device && e.device.id;
@@ -972,7 +976,7 @@
                     var z = byId[c.zoneIds[k]];
                     if (!z || !isImpoundZone(z)) continue;
                     var ctr = zoneCentroid(z) || { lat: c.p.lat, lng: c.p.lng };
-                    out[c.i] = { name: z.name, addr: z.comment || '', lat: ctr.lat, lng: ctr.lng };
+                    out[c.i] = { id: z.id, name: z.name, addr: z.comment || '', lat: ctr.lat, lng: ctr.lng };
                     break;
                   }
                 });
@@ -993,7 +997,8 @@
               vehicle: dev.name || (e.device || {}).id || 'Unknown',
               plate: dev.licensePlate || '', vin: dev.vehicleIdentificationNumber || '',
               lot: null, lotAddr: '', lat: null, lng: null,
-              start: start, end: end, hours: hours, active: open
+              start: start, end: end, hours: hours, active: open,
+              eventEnd: e.activeTo || null   // raw activeTo, used if we demote an open row
             };
             (open ? act : his).push(row);
           });
@@ -1003,13 +1008,64 @@
             var s = dsiById[r.deviceId];
             return (s && s.latitude != null) ? { lat: s.latitude, lng: s.longitude } : null;
           });
-          return resolveZonesForPoints(openPoints).then(function (lots) {
+          // Where each open event actually FIRED, so we can compare it against
+          // where the vehicle is now. Presence in *an* impound zone is not
+          // enough: a car that sat in one impound zone overnight and drove to
+          // a different one this morning is in a zone, but the original event
+          // is over. Only the same zone means it never left.
+          var openTriggerCalls = act.map(function (r) {
+            return ['Get', {
+              typeName: 'LogRecord',
+              search: {
+                deviceSearch: { id: r.deviceId },
+                fromDate: new Date(r.start.getTime() - 15 * 60000).toISOString(),
+                toDate:   new Date(r.start.getTime() + 15 * 60000).toISOString()
+              },
+              resultsLimit: 200
+            }];
+          });
+
+          return multiCallChunked(openTriggerCalls, 100).catch(function () { return []; })
+            .then(function (openLogs) {
+              var openTriggerPoints = act.map(function (r, i) {
+                var best = null, bestGap = Infinity;
+                ((openLogs || [])[i] || []).forEach(function (l) {
+                  if (l.latitude == null) return;
+                  var gap = Math.abs(new Date(l.dateTime).getTime() - r.start.getTime());
+                  if (gap < bestGap) { bestGap = gap; best = l; }
+                });
+                return best ? { lat: best.latitude, lng: best.longitude } : null;
+              });
+              return Promise.all([
+                resolveZonesForPoints(openPoints),
+                resolveZonesForPoints(openTriggerPoints)
+              ]);
+            }).then(function (both) {
+            var lots = both[0], triggerLots = both[1];
+            var stillOpen = [];
             act.forEach(function (r, i) {
-              var lot = lots[i];
+              var here = lots[i];          // zone the vehicle is in right now
+              var fired = triggerLots[i];  // zone the event fired in
+              // Left the zone it was impounded in? Then it has been released,
+              // whatever the event timestamps say. Only demote when we actually
+              // know both ends — an unknown position must not close an event.
+              var departed = here && fired && here.id !== fired.id;
+              if (departed || (fired && !here && openPoints[i])) {
+                r.active = false;
+                r.end = new Date(r.eventEnd || Date.now());
+                r.hours = (r.end.getTime() - r.start.getTime()) / 3600000;
+                r.lot = fired.name; r.lotAddr = fired.addr;
+                r.lat = fired.lat; r.lng = fired.lng;
+                his.push(r);
+                return;
+              }
+              var lot = here || fired;
               r.lot = lot ? lot.name : 'Zone not resolved';
               r.lotAddr = lot ? lot.addr : '';
               r.lat = lot ? lot.lat : null; r.lng = lot ? lot.lng : null;
+              stillOpen.push(r);
             });
+            act = stillOpen;
 
             // ---- Closed events: where was the vehicle when the rule fired? ----
             // ExceptionEvent records the device, the rule and the times, but
