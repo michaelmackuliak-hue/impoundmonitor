@@ -556,7 +556,7 @@
 
   // ---- Configuration the add-in depends on -----------------------
   var CFG = {
-    BUILD: '2026-09-08 02:15',
+    BUILD: '2026-09-08 03:05',
     RULE_NAME: 'Impound Lot Detection',
     // The contract is the zone TYPE. Zone names are whatever the import wrote
     // (e.g. "Impound Lot - Westway Towing") and are only ever displayed, never
@@ -588,6 +588,7 @@
   var lastZoneLookup = {};    // authoritative Zone records keyed by id, for IZM.debugZones()
   var lastZoneError = null;   // last zone-resolution error, if any
   var isImpoundZoneRef = null; // set each refresh, so IZM.debugZones() can call it
+  var lastTriggerInfo = [];   // per closed event: where it fired, for IZM.debugTrigger()
 
   // ---------------- helpers ----------------
   var esc = function (s) {
@@ -1010,45 +1011,56 @@
               r.lat = lot ? lot.lat : null; r.lng = lot ? lot.lng : null;
             });
 
-            // ---- Closed events: find the trip that ended at the impound ----
-            // ExceptionEvent records the device, the rule and the times, but not
-            // the zone. For a closed event the vehicle has already left, so the
-            // current position is useless. The trip that STOPPED at activeFrom
-            // is the one that dropped it in the lot, and Trip.stopPoint gives
-            // us the coordinates. One tight-window call per event, batched.
+            // ---- Closed events: where was the vehicle when the rule fired? ----
+            // ExceptionEvent records the device, the rule and the times, but
+            // neither the zone nor any coordinates, and the rule condition
+            // points at a zone TYPE rather than a specific lot. So the location
+            // has to be reconstructed. The vehicle has already left by now, so
+            // its current position is useless; what we want is its actual GPS
+            // position at activeFrom, which is the moment the rule fired.
+            // LogRecord gives exactly that. (Trip.stopPoint was the previous
+            // approach and is only an approximation - the nearest stop in the
+            // window can be somewhere else along the route entirely.)
             var pending = his.filter(function (r) { return r.deviceId; });
             if (!pending.length) { finish(); return null; }
 
             var calls = pending.map(function (r) {
               return ['Get', {
-                typeName: 'Trip',
+                typeName: 'LogRecord',
                 search: {
                   deviceSearch: { id: r.deviceId },
-                  fromDate: new Date(r.start.getTime() - 2 * 3600000).toISOString(),
-                  toDate:   new Date(r.start.getTime() + 2 * 3600000).toISOString()
+                  fromDate: new Date(r.start.getTime() - 15 * 60000).toISOString(),
+                  toDate:   new Date(r.start.getTime() + 15 * 60000).toISOString()
                 },
-                resultsLimit: 20
+                resultsLimit: 200
               }];
             });
 
             return multiCallChunked(calls, 100).then(function (results) {
               var stopPoints = pending.map(function (r, i) {
-                var trips = results[i];
+                var logs = results[i];
                 var best = null, bestGap = Infinity;
-                (trips || []).forEach(function (t) {
-                  if (!t.stopPoint) return;
-                  var gap = Math.abs(new Date(t.stop).getTime() - r.start.getTime());
-                  if (gap < bestGap) { bestGap = gap; best = t; }
+                (logs || []).forEach(function (l) {
+                  if (l.latitude == null) return;
+                  var gap = Math.abs(new Date(l.dateTime).getTime() - r.start.getTime());
+                  if (gap < bestGap) { bestGap = gap; best = l; }
                 });
-                // accept a stop within 90 minutes of the event opening
-                return (best && bestGap <= 90 * 60000) ? { lat: best.stopPoint.y, lng: best.stopPoint.x } : null;
+                return best ? { lat: best.latitude, lng: best.longitude } : null;
               });
               return resolveZonesForPoints(stopPoints).then(function (lots) {
+                lastTriggerInfo = [];
                 pending.forEach(function (r, i) {
                   var z = lots[i];
                   if (z) { r.lot = z.name; r.lotAddr = z.addr; r.lat = z.lat; r.lng = z.lng; }
                   else if (stopPoints[i]) { r.lot = 'Outside any impound zone'; }
                   else { r.lot = 'Zone not resolved'; }
+                  lastTriggerInfo.push({
+                    vehicle: r.vehicle, vin: r.vin,
+                    firedAt: r.start.toISOString(),
+                    positionAtFire: stopPoints[i],
+                    logRecordsInWindow: (results[i] || []).length,
+                    resolvedLot: r.lot
+                  });
                 });
                 finish();
                 return null;
@@ -1160,7 +1172,7 @@
   function renderTiles() {
     if (data.loading) {
       el('izm-tiles').innerHTML = ['Currently impounded', 'Average time held', 'Storage accrued',
-        'Released in window', 'Impound lots monitored'].map(function (label) {
+        'Released (last ' + windowDays + ' days)', 'Impound lots monitored'].map(function (label) {
         return '<div class="zen-summary-tile">' +
           '<span class="zen-summary-tile__label">' + esc(label) + '</span>' +
           '<span class="zen-summary-tile__value" style="color:var(--text-placeholder)">&mdash;</span>' +
@@ -1197,7 +1209,7 @@
         hint: a.length ? 'open events' : 'nothing open' },
       { type: 'warning', label: 'Average time held', value: fmtDur(avg), hint: 'across open events' },
       { type: 'error', label: 'Storage accrued', value: money(accrued), hint: 'at ' + money(rate) + '/day' },
-      { type: 'success', label: 'Released in window', value: recovered, hint: 'average ' + fmtDur(recAvg) },
+      { type: 'success', label: 'Released (last ' + windowDays + ' days)', value: recovered, hint: 'held ' + fmtDur(recAvg) + ' on average' },
       { type: 'default', label: 'Impound lots monitored',
         value: (mode === 'live' && api && data.lots)
           ? '<a href="#" class="izm-tilelink" onclick="IZM.viewZones();return false;" ' +
@@ -1272,7 +1284,7 @@
     slot.innerHTML = '<div class="izm-tablewrap" style="max-height:380px"><table class="zen-table">' +
       '<caption class="izm-sr">Vehicles currently held in an impound zone</caption>' +
       '<thead><tr><th scope="col">Vehicle</th><th scope="col">Plate</th><th scope="col">Time held</th>' +
-      '<th scope="col">Detected</th><th scope="col">Impound lot</th><th scope="col">Storage owed</th>' +
+      '<th scope="col">Arrived</th><th scope="col">Impound lot</th><th scope="col">Storage owed</th>' +
       '<th scope="col">Action</th></tr></thead><tbody>' +
       rows.map(function (r) {
         var s = sev(r.hours);
@@ -1780,6 +1792,16 @@
       }, function (err) { console.error('Rule creation failed:', err); toast('Rule creation failed — see console'); });
     },
     debugEvents: function () { console.log(JSON.stringify(lastRawEvents, null, 2)); return lastRawEvents; },
+    debugTrigger: function (match) {
+      var rows = lastTriggerInfo.filter(function (t) {
+        if (!match) return true;
+        var m = String(match).toLowerCase();
+        return (t.vehicle || '').toLowerCase().indexOf(m) !== -1 ||
+               (t.vin || '').toLowerCase().indexOf(m) !== -1;
+      });
+      console.log(JSON.stringify(rows, null, 2));
+      return rows;
+    },
     debugZones: function () {
       var d = {
         zoneTypeId: zoneTypeId, zoneFallback: zoneFallback, error: lastZoneError,
