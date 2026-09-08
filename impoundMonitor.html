@@ -556,7 +556,7 @@
 
   // ---- Configuration the add-in depends on -----------------------
   var CFG = {
-    BUILD: '2026-09-08 00:05',
+    BUILD: '2026-09-08 01:20',
     RULE_NAME: 'Impound Lot Detection',
     // The contract is the zone TYPE. Zone names are whatever the import wrote
     // (e.g. "Impound Lot - Westway Towing") and are only ever displayed, never
@@ -620,21 +620,6 @@
     setTimeout(function () { t.remove(); }, 4200);
   }
 
-  // Ray casting. Geotab zone points are {x: longitude, y: latitude}.
-  function pointInPolygon(lng, lat, pts) {
-    var inside = false;
-    for (var i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-      var xi = pts[i].x, yi = pts[i].y, xj = pts[j].x, yj = pts[j].y;
-      if (((yi > lat) !== (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)) inside = !inside;
-    }
-    return inside;
-  }
-  function haversineKm(la1, lo1, la2, lo2) {
-    var R = 6371, p = Math.PI / 180;
-    var a = Math.sin((la2 - la1) * p / 2) * Math.sin((la2 - la1) * p / 2) +
-            Math.cos(la1 * p) * Math.cos(la2 * p) * Math.sin((lo2 - lo1) * p / 2) * Math.sin((lo2 - lo1) * p / 2);
-    return 2 * R * Math.asin(Math.sqrt(a));
-  }
   function zoneCentroid(z) {
     var pts = z.points || [];
     if (!pts.length) return null;
@@ -918,47 +903,41 @@
             (arr || []).forEach(function (s) { if (s.device && s.device.id) dsiById[s.device.id] = s; });
           });
 
-          // Zone lookup for open events: use the vehicle's current position.
-          function lotFor(deviceId) {
-            var s = dsiById[deviceId];
-            if (!s || s.latitude == null) return null;
-            var hit = zones.filter(function (z) { return pointInPolygon(s.longitude, s.latitude, z.points || []); })[0];
-            if (!hit) {
-              // nearest zone within 200 m, so a GPS drift of a few metres still resolves
-              var best = null, bestD = 0.2;
-              zones.forEach(function (z) {
-                var c = zoneCentroid(z); if (!c) return;
-                var d = haversineKm(s.latitude, s.longitude, c.lat, c.lng);
-                if (d < bestD) { bestD = d; best = z; }
-              });
-              hit = best;
-            }
-            if (!hit) return null;
-            var c = zoneCentroid(hit);
-            return { name: hit.name, addr: hit.comment || '', lat: c ? c.lat : s.latitude, lng: c ? c.lng : s.longitude };
+          // ---- Zone lookup: server-side reverse geocode, not a local scan ----
+          // Get on Zone is hard-capped at 10,000 records per call. With 37,000+
+          // impound zones the pre-fetched `zones` array only ever holds a
+          // fraction of them, so a local point-in-polygon scan against it
+          // silently misses any lot outside that first batch (this is exactly
+          // why a vehicle sitting in a real impound zone showed "Zone not
+          // resolved" / "Outside any impound zone"). GetAddresses matches a
+          // coordinate against the full zone set server-side, so it stays
+          // correct no matter how many zones exist.
+          function isImpoundZone(z) {
+            if (zoneFallback) return (z.name || '').toLowerCase().indexOf(CFG.ZONE_NAME_FALLBACK) !== -1;
+            return !!zoneTypeId && (z.zoneTypes || []).some(function (t) { return t.id === zoneTypeId; });
           }
-
-          // Resolve which zone a position falls in.
-          function zoneAt(lat, lng) {
-            if (lat == null || lng == null) return null;
-            var hit = zones.filter(function (z) { return pointInPolygon(lng, lat, z.points || []); })[0];
-            if (!hit) {
-              // nearest zone within 200 m, so a few metres of GPS drift still resolves
-              var best = null, bestD = 0.2;
-              zones.forEach(function (z) {
-                var c = zoneCentroid(z); if (!c) return;
-                var d = haversineKm(lat, lng, c.lat, c.lng);
-                if (d < bestD) { bestD = d; best = z; }
-              });
-              hit = best;
-            }
-            if (!hit) return null;
-            var c = zoneCentroid(hit);
-            return { name: hit.name, addr: hit.comment || '', lat: c ? c.lat : lat, lng: c ? c.lng : lng };
-          }
-          function lotFor(deviceId) {
-            var s = dsiById[deviceId];
-            return s ? zoneAt(s.latitude, s.longitude) : null;
+          function resolveZonesForPoints(points) {
+            // points: [{lat, lng} | null] -> promise of a parallel array of
+            // {name, addr, lat, lng} | null
+            var out = points.map(function () { return null; });
+            var need = [];
+            points.forEach(function (p, i) { if (p && p.lat != null && p.lng != null) need.push({ p: p, i: i }); });
+            if (!need.length) return Promise.resolve(out);
+            var batches = [];
+            for (var i = 0; i < need.length; i += 500) batches.push(need.slice(i, i + 500));
+            return Promise.all(batches.map(function (batch) {
+              return call('GetAddresses', {
+                coordinates: batch.map(function (x) { return { x: x.p.lng, y: x.p.lat }; })
+              }).then(function (addrs) {
+                (addrs || []).forEach(function (a, j) {
+                  var x = batch[j];
+                  var hit = ((a && a.zones) || []).filter(isImpoundZone)[0];
+                  if (!hit) return;
+                  var c = zoneCentroid(hit) || { lat: x.p.lat, lng: x.p.lng };
+                  out[x.i] = { name: hit.name, addr: hit.comment || '', lat: c.lat, lng: c.lng };
+                });
+              }).catch(function () { /* this batch stays unresolved */ });
+            })).then(function () { return out; });
           }
 
           var act = [], his = [];
@@ -968,63 +947,77 @@
             var open = isOpen(e);
             var end = open ? null : new Date(e.activeTo);
             var hours = ((open ? Date.now() : end.getTime()) - start.getTime()) / 3600000;
-            var lot = open ? lotFor(e.device.id) : null;
             var row = {
               eventId: e.id, deviceId: (e.device || {}).id,
               vehicle: dev.name || (e.device || {}).id || 'Unknown',
               plate: dev.licensePlate || '', vin: dev.vehicleIdentificationNumber || '',
-              lot: lot ? lot.name : (open ? 'Zone not resolved' : null),
-              lotAddr: lot ? lot.addr : '',
-              lat: lot ? lot.lat : null, lng: lot ? lot.lng : null,
+              lot: null, lotAddr: '', lat: null, lng: null,
               start: start, end: end, hours: hours, active: open
             };
             (open ? act : his).push(row);
           });
 
-          // ---- Closed events: find the trip that ended at the impound ----
-          // ExceptionEvent records the device, the rule and the times, but not
-          // the zone. For a closed event the vehicle has already left, so the
-          // current position is useless. The trip that STOPPED at activeFrom is
-          // the one that dropped it in the lot, and Trip.stopPoint gives us the
-          // coordinates. One tight-window call per event, batched via multiCall.
-          var pending = his.filter(function (r) { return r.deviceId; });
-          if (!pending.length) { finish(); return null; }
-
-          var calls = pending.map(function (r) {
-            return ['Get', {
-              typeName: 'Trip',
-              search: {
-                deviceSearch: { id: r.deviceId },
-                fromDate: new Date(r.start.getTime() - 2 * 3600000).toISOString(),
-                toDate:   new Date(r.start.getTime() + 2 * 3600000).toISOString()
-              },
-              resultsLimit: 20
-            }];
+          // Open events: resolve the vehicle's current position.
+          var openPoints = act.map(function (r) {
+            var s = dsiById[r.deviceId];
+            return (s && s.latitude != null) ? { lat: s.latitude, lng: s.longitude } : null;
           });
-
-          return multiCallChunked(calls, 100).then(function (results) {
-            results.forEach(function (trips, i) {
-              var r = pending[i];
-              var best = null, bestGap = Infinity;
-              (trips || []).forEach(function (t) {
-                if (!t.stopPoint) return;
-                var gap = Math.abs(new Date(t.stop).getTime() - r.start.getTime());
-                if (gap < bestGap) { bestGap = gap; best = t; }
-              });
-              // accept a stop within 90 minutes of the event opening
-              if (best && bestGap <= 90 * 60000) {
-                var z = zoneAt(best.stopPoint.y, best.stopPoint.x);
-                if (z) { r.lot = z.name; r.lotAddr = z.addr; r.lat = z.lat; r.lng = z.lng; }
-                else { r.lot = 'Outside any impound zone'; }
-              }
-              if (!r.lot) r.lot = 'Zone not resolved';
+          return resolveZonesForPoints(openPoints).then(function (lots) {
+            act.forEach(function (r, i) {
+              var lot = lots[i];
+              r.lot = lot ? lot.name : 'Zone not resolved';
+              r.lotAddr = lot ? lot.addr : '';
+              r.lat = lot ? lot.lat : null; r.lng = lot ? lot.lng : null;
             });
-            finish();
-            return null;
-          }).catch(function () {
-            his.forEach(function (r) { if (!r.lot) r.lot = 'Zone not resolved'; });
-            finish();
-            return null;
+
+            // ---- Closed events: find the trip that ended at the impound ----
+            // ExceptionEvent records the device, the rule and the times, but not
+            // the zone. For a closed event the vehicle has already left, so the
+            // current position is useless. The trip that STOPPED at activeFrom
+            // is the one that dropped it in the lot, and Trip.stopPoint gives
+            // us the coordinates. One tight-window call per event, batched.
+            var pending = his.filter(function (r) { return r.deviceId; });
+            if (!pending.length) { finish(); return null; }
+
+            var calls = pending.map(function (r) {
+              return ['Get', {
+                typeName: 'Trip',
+                search: {
+                  deviceSearch: { id: r.deviceId },
+                  fromDate: new Date(r.start.getTime() - 2 * 3600000).toISOString(),
+                  toDate:   new Date(r.start.getTime() + 2 * 3600000).toISOString()
+                },
+                resultsLimit: 20
+              }];
+            });
+
+            return multiCallChunked(calls, 100).then(function (results) {
+              var stopPoints = pending.map(function (r, i) {
+                var trips = results[i];
+                var best = null, bestGap = Infinity;
+                (trips || []).forEach(function (t) {
+                  if (!t.stopPoint) return;
+                  var gap = Math.abs(new Date(t.stop).getTime() - r.start.getTime());
+                  if (gap < bestGap) { bestGap = gap; best = t; }
+                });
+                // accept a stop within 90 minutes of the event opening
+                return (best && bestGap <= 90 * 60000) ? { lat: best.stopPoint.y, lng: best.stopPoint.x } : null;
+              });
+              return resolveZonesForPoints(stopPoints).then(function (lots) {
+                pending.forEach(function (r, i) {
+                  var z = lots[i];
+                  if (z) { r.lot = z.name; r.lotAddr = z.addr; r.lat = z.lat; r.lng = z.lng; }
+                  else if (stopPoints[i]) { r.lot = 'Outside any impound zone'; }
+                  else { r.lot = 'Zone not resolved'; }
+                });
+                finish();
+                return null;
+              });
+            }).catch(function () {
+              his.forEach(function (r) { if (!r.lot) r.lot = 'Zone not resolved'; });
+              finish();
+              return null;
+            });
           });
 
           function finish() {
