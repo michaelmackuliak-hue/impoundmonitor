@@ -556,7 +556,7 @@
 
   // ---- Configuration the add-in depends on -----------------------
   var CFG = {
-    BUILD: '2026-09-08 01:20',
+    BUILD: '2026-09-08 02:15',
     RULE_NAME: 'Impound Lot Detection',
     // The contract is the zone TYPE. Zone names are whatever the import wrote
     // (e.g. "Impound Lot - Westway Towing") and are only ever displayed, never
@@ -584,6 +584,10 @@
   var booted = false;         // true once boot() has run, from either entry point
   var focusDevice = null;     // device id passed in the URL, e.g. from a notification email
   var lastRawEvents = [];     // last ExceptionEvent fetch, unshaped, for IZM.debugEvents()
+  var lastRawAddresses = [];  // last GetAddresses responses, for IZM.debugZones()
+  var lastZoneLookup = {};    // authoritative Zone records keyed by id, for IZM.debugZones()
+  var lastZoneError = null;   // last zone-resolution error, if any
+  var isImpoundZoneRef = null; // set each refresh, so IZM.debugZones() can call it
 
   // ---------------- helpers ----------------
   var esc = function (s) {
@@ -916,6 +920,8 @@
             if (zoneFallback) return (z.name || '').toLowerCase().indexOf(CFG.ZONE_NAME_FALLBACK) !== -1;
             return !!zoneTypeId && (z.zoneTypes || []).some(function (t) { return t.id === zoneTypeId; });
           }
+          isImpoundZoneRef = isImpoundZone;
+          lastRawAddresses = []; lastZoneLookup = {}; lastZoneError = null;
           function resolveZonesForPoints(points) {
             // points: [{lat, lng} | null] -> promise of a parallel array of
             // {name, addr, lat, lng} | null
@@ -925,19 +931,53 @@
             if (!need.length) return Promise.resolve(out);
             var batches = [];
             for (var i = 0; i < need.length; i += 500) batches.push(need.slice(i, i + 500));
+            var candidates = [];   // [{i, p, zoneIds:[...]}]
             return Promise.all(batches.map(function (batch) {
               return call('GetAddresses', {
                 coordinates: batch.map(function (x) { return { x: x.p.lng, y: x.p.lat }; })
               }).then(function (addrs) {
+                lastRawAddresses = lastRawAddresses.concat(addrs || []);
                 (addrs || []).forEach(function (a, j) {
                   var x = batch[j];
-                  var hit = ((a && a.zones) || []).filter(isImpoundZone)[0];
-                  if (!hit) return;
-                  var c = zoneCentroid(hit) || { lat: x.p.lat, lng: x.p.lng };
-                  out[x.i] = { name: hit.name, addr: hit.comment || '', lat: c.lat, lng: c.lng };
+                  var zs = (a && a.zones) || [];
+                  if (!zs.length) return;
+                  candidates.push({
+                    i: x.i, p: x.p,
+                    zoneIds: zs.map(function (z) { return z && (z.id || z); }).filter(Boolean)
+                  });
                 });
-              }).catch(function () { /* this batch stays unresolved */ });
-            })).then(function () { return out; });
+              }).catch(function (err) { lastZoneError = String(err && err.message || err); });
+            })).then(function () {
+              // GetAddresses returns zone stubs whose shape isn't guaranteed to
+              // carry zoneTypes, so never classify from them directly — re-read
+              // each candidate by id to get the authoritative Zone record.
+              var ids = [];
+              var seen = {};
+              candidates.forEach(function (c) {
+                c.zoneIds.forEach(function (id) { if (!seen[id]) { seen[id] = 1; ids.push(id); } });
+              });
+              if (!ids.length) return out;
+              return multiCallChunked(ids.map(function (id) {
+                return ['Get', { typeName: 'Zone', search: { id: id } }];
+              }), 100).then(function (results) {
+                var byId = {};
+                results.forEach(function (r) {
+                  var z = (r || [])[0];
+                  if (z && z.id) byId[z.id] = z;
+                });
+                lastZoneLookup = byId;
+                candidates.forEach(function (c) {
+                  for (var k = 0; k < c.zoneIds.length; k++) {
+                    var z = byId[c.zoneIds[k]];
+                    if (!z || !isImpoundZone(z)) continue;
+                    var ctr = zoneCentroid(z) || { lat: c.p.lat, lng: c.p.lng };
+                    out[c.i] = { name: z.name, addr: z.comment || '', lat: ctr.lat, lng: ctr.lng };
+                    break;
+                  }
+                });
+                return out;
+              }).catch(function (err) { lastZoneError = String(err && err.message || err); return out; });
+            });
           }
 
           var act = [], his = [];
@@ -1740,6 +1780,19 @@
       }, function (err) { console.error('Rule creation failed:', err); toast('Rule creation failed — see console'); });
     },
     debugEvents: function () { console.log(JSON.stringify(lastRawEvents, null, 2)); return lastRawEvents; },
+    debugZones: function () {
+      var d = {
+        zoneTypeId: zoneTypeId, zoneFallback: zoneFallback, error: lastZoneError,
+        addressCount: lastRawAddresses.length,
+        addresses: lastRawAddresses.slice(0, 5),
+        lookedUpZones: Object.keys(lastZoneLookup).slice(0, 5).map(function (k) {
+          var z = lastZoneLookup[k];
+          return { id: z.id, name: z.name, zoneTypes: z.zoneTypes, impound: isImpoundZoneRef && isImpoundZoneRef(z) };
+        })
+      };
+      console.log(JSON.stringify(d, null, 2));
+      return d;
+    },
     copyName: function () { copyText(CFG.RULE_NAME, 'Rule name'); },
     copyRule: function () { copyText(window.__IZM_RULE_JSON || '', 'Rule definition'); },
     recheck: function () { if (api) { loadLive().then(function () { closeSetup(); openSetup(); }); } },
