@@ -556,7 +556,7 @@
 
   // ---- Configuration the add-in depends on -----------------------
   var CFG = {
-    BUILD: '2026-09-08 10:20',
+    BUILD: '2026-09-08 11:15',
     RULE_NAME: 'Impound Lot Detection',
     // The contract is the zone TYPE. Zone names are whatever the import wrote
     // (e.g. "Impound Lot - Westway Towing") and are only ever displayed, never
@@ -1015,25 +1015,29 @@
           // enough: a car that sat in one impound zone overnight and drove to
           // a different one this morning is in a zone, but the original event
           // is over. Only the same zone means it never left.
+          // Sample the middle of the stay, not activeFrom - see the long note
+          // on the closed-event path below for why the entry moment is useless.
           var openTriggerCalls = act.map(function (r) {
+            var span = Math.max(0, Date.now() - r.start.getTime());
             return ['Get', {
               typeName: 'LogRecord',
               search: {
                 deviceSearch: { id: r.deviceId },
-                fromDate: new Date(r.start.getTime() - 15 * 60000).toISOString(),
-                toDate:   new Date(r.start.getTime() + 15 * 60000).toISOString()
+                fromDate: new Date(r.start.getTime() + span * 0.3).toISOString(),
+                toDate:   new Date(r.start.getTime() + span * 0.7).toISOString()
               },
-              resultsLimit: 200
+              resultsLimit: 500
             }];
           });
 
           return multiCallChunked(openTriggerCalls, 100).catch(function () { return []; })
             .then(function (openLogs) {
               var openTriggerPoints = act.map(function (r, i) {
+                var mid = r.start.getTime() + Math.max(0, Date.now() - r.start.getTime()) / 2;
                 var best = null, bestGap = Infinity;
                 ((openLogs || [])[i] || []).forEach(function (l) {
                   if (l.latitude == null) return;
-                  var gap = Math.abs(new Date(l.dateTime).getTime() - r.start.getTime());
+                  var gap = Math.abs(new Date(l.dateTime).getTime() - mid);
                   if (gap < bestGap) { bestGap = gap; best = l; }
                 });
                 return best ? { lat: best.latitude, lng: best.longitude } : null;
@@ -1085,60 +1089,99 @@
             });
             act = stillOpen;
 
-            // ---- Closed events: where was the vehicle when the rule fired? ----
+            // ---- Closed events: which lot was the vehicle held in? ----
             // ExceptionEvent records the device, the rule and the times, but
             // neither the zone nor any coordinates, and the rule condition
             // points at a zone TYPE rather than a specific lot. So the location
-            // has to be reconstructed. The vehicle has already left by now, so
-            // its current position is useless; what we want is its actual GPS
-            // position at activeFrom, which is the moment the rule fired.
-            // LogRecord gives exactly that. (Trip.stopPoint was the previous
-            // approach and is only an approximation - the nearest stop in the
-            // window can be somewhere else along the route entirely.)
+            // has to be reconstructed from position data.
+            //
+            // Do NOT sample at activeFrom. The rule is
+            // DurationLongerThan(InsideArea), so activeFrom is when the vehicle
+            // ENTERED the zone, not when the exception was raised - the car is
+            // still moving, right on the zone boundary, and the nearest GPS
+            // record lands just outside the polygon (or hundreds of metres away
+            // if it caught the approach). That produced a spread of bogus
+            // "Outside any impound zone" rows 135-700m from the real lot.
+            //
+            // Sample from the middle of the event instead: the vehicle sat
+            // parked for hours, so those positions are deep inside the lot.
+            // Three samples across the span, first one that lands in an impound
+            // zone wins, which also absorbs the occasional GPS outlier.
             var pending = his.filter(function (r) { return r.deviceId; });
             if (!pending.length) { finish(); return null; }
 
+            var SAMPLE_FRACTIONS = [0.5, 0.25, 0.75];
+            function eventSpan(r) {
+              var endMs = (r.end && r.end.getTime()) || Date.now();
+              return Math.max(0, endMs - r.start.getTime());
+            }
+
             var calls = pending.map(function (r) {
+              // One window covering the middle of the event, sampled below.
+              var span = eventSpan(r);
               return ['Get', {
                 typeName: 'LogRecord',
                 search: {
                   deviceSearch: { id: r.deviceId },
-                  fromDate: new Date(r.start.getTime() - 15 * 60000).toISOString(),
-                  toDate:   new Date(r.start.getTime() + 15 * 60000).toISOString()
+                  fromDate: new Date(r.start.getTime() + span * 0.2).toISOString(),
+                  toDate:   new Date(r.start.getTime() + span * 0.8).toISOString()
                 },
-                resultsLimit: 200
+                resultsLimit: 500
               }];
             });
 
             return multiCallChunked(calls, 100).then(function (results) {
-              var stopPoints = pending.map(function (r, i) {
-                var logs = results[i];
-                var best = null, bestGap = Infinity;
-                (logs || []).forEach(function (l) {
-                  if (l.latitude == null) return;
-                  var gap = Math.abs(new Date(l.dateTime).getTime() - r.start.getTime());
-                  if (gap < bestGap) { bestGap = gap; best = l; }
-                });
-                return best ? { lat: best.latitude, lng: best.longitude } : null;
-              });
-              return resolveZonesForPoints(stopPoints).then(function (lots) {
-                lastTriggerInfo = [];
-                pending.forEach(function (r, i) {
-                  var z = lots[i];
-                  if (z) { r.lot = z.name; r.lotAddr = z.addr; r.lat = z.lat; r.lng = z.lng; }
-                  else if (stopPoints[i]) { r.lot = 'Outside any impound zone'; }
-                  else { r.lot = 'Zone not resolved'; }
-                  lastTriggerInfo.push({
-                    vehicle: r.vehicle, vin: r.vin,
-                    firedAt: r.start.toISOString(),
-                    positionAtFire: stopPoints[i],
-                    logRecordsInWindow: (results[i] || []).length,
-                    resolvedLot: r.lot
+              // For each event build the candidate sample points, then resolve
+              // them all in one batch and keep the first hit per event.
+              var flatPoints = [], owner = [];
+              pending.forEach(function (r, i) {
+                var logs = (results[i] || []).filter(function (l) { return l.latitude != null; });
+                var span = eventSpan(r);
+                SAMPLE_FRACTIONS.forEach(function (f) {
+                  var target = r.start.getTime() + span * f;
+                  var best = null, bestGap = Infinity;
+                  logs.forEach(function (l) {
+                    var gap = Math.abs(new Date(l.dateTime).getTime() - target);
+                    if (gap < bestGap) { bestGap = gap; best = l; }
                   });
+                  flatPoints.push(best ? { lat: best.latitude, lng: best.longitude } : null);
+                  owner.push(i);
                 });
-                finish();
-                return null;
               });
+
+              return resolveZonesForPoints(flatPoints).then(function (flatLots) {
+                // Collapse back: first resolved zone per event, and the first
+                // known position as the fallback for the "outside" message.
+                var lots = pending.map(function () { return null; });
+                var stopPoints = pending.map(function () { return null; });
+                flatLots.forEach(function (z, k) {
+                  var i = owner[k];
+                  if (z && !lots[i]) lots[i] = z;
+                  if (flatPoints[k] && !stopPoints[i]) stopPoints[i] = flatPoints[k];
+                });
+                return {
+                  lots: lots, stopPoints: stopPoints,
+                  counts: pending.map(function (_, i) { return (results[i] || []).length; })
+                };
+              });
+            }).then(function (resolved) {
+              var lots = resolved.lots, stopPoints = resolved.stopPoints;
+              lastTriggerInfo = [];
+              pending.forEach(function (r, i) {
+                var z = lots[i];
+                if (z) { r.lot = z.name; r.lotAddr = z.addr; r.lat = z.lat; r.lng = z.lng; }
+                else if (stopPoints[i]) { r.lot = 'Outside any impound zone'; }
+                else { r.lot = 'Zone not resolved'; }
+                lastTriggerInfo.push({
+                  vehicle: r.vehicle, vin: r.vin,
+                  firedAt: r.start.toISOString(),
+                  sampledPosition: stopPoints[i],
+                  logRecordsInWindow: resolved.counts[i],
+                  resolvedLot: r.lot
+                });
+              });
+              finish();
+              return null;
             }).catch(function () {
               his.forEach(function (r) { if (!r.lot) r.lot = 'Zone not resolved'; });
               finish();
